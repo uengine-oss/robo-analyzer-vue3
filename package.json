@@ -1,0 +1,30 @@
+{
+  "name": "legacy-modernizer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@neo4j-nvl/base": "^1.0.0",
+    "@neo4j-nvl/interaction-handlers": "^1.0.0",
+    "mermaid": "^10.9.0",
+    "monaco-editor": "^0.45.0",
+    "pinia": "^2.1.7",
+    "uuid": "^9.0.1",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitejs/plugin-vue": "^5.0.4",
+    "sass": "^1.71.0",
+    "typescript": "~5.3.3",
+    "vite": "^5.1.4",
+    "vue-tsc": "^1.8.27"
+  }
+}
