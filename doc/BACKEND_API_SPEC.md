@@ -94,17 +94,7 @@ Content-Type: multipart/form-data
   "strategy": "framework",
   "target": "java",
   "projectName": "MyProject",
-  "systems": [
-    {
-      "name": "user",
-      "sp": ["UserService.java", "UserController.java"]
-    },
-    {
-      "name": "order",
-      "sp": ["OrderService.java"]
-    }
-  ],
-  "ddl": ["schema.sql"]
+  "ddl": ["schema.sql", "tables/order.sql"]
 }
 ```
 
@@ -123,10 +113,20 @@ MyProject/              → projectName: "MyProject"
     └── OrderService.java     → systems[1]: {name: "order", sp: [...]}
 ```
 
-**자동 인식 규칙:**
-1. 최상위 폴더명 → `projectName`
-2. `ddl` 폴더 내 파일 → `ddl` 배열
-3. 나머지 폴더 → `systems` 배열
+**자동 인식 규칙(최소화):**
+1. 최상위 폴더명 → `projectName` (고정)
+2. 나머지 분류(DDL/일반 파일)는 프론트에서 **사용자가 DDL 패널로 배치**한 결과만 반영합니다.
+
+### 📦 multipart/form-data에서 경로 전달 방식(변경)
+
+`files` 파트의 **filename(파일명)** 자리에, 실제 파일명 대신 **`projectName`을 포함한 상대경로**를 넣어 전송합니다.
+
+예:
+- `files`: `MyProject/user/controller/UserController.java`
+- `files`: `MyProject/ddl/tables/order.sql`
+- `files`: `MyProject/readme.txt`
+
+> 백엔드는 이 filename 값을 사용해 업로드 폴더 구조를 그대로 저장/복원할 수 있습니다.
 
 ### Response
 
@@ -134,8 +134,8 @@ MyProject/              → projectName: "MyProject"
 ```json
 {
   "projectName": "MyProject",
-  "systemFiles": [
-    {"system": "user", "fileName": "UserService.java", "fileContent": "..."}
+  "files": [
+    {"fileName": "user/UserService.java", "fileContent": "..."}
   ],
   "ddlFiles": [
     {"fileName": "schema.sql", "fileContent": "CREATE TABLE..."}

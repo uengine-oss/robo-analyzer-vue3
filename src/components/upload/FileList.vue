@@ -3,7 +3,6 @@ import { ref } from 'vue'
 
 interface FileItem {
   fileName: string
-  system?: string
   fileContent?: string
 }
 
@@ -49,7 +48,6 @@ const getFileIcon = (fileName: string): string => {
       <span class="file-icon">{{ getFileIcon(file.fileName) }}</span>
       <span class="file-info">
         <span class="file-name">{{ file.fileName }}</span>
-        <span class="file-system" v-if="file.system">{{ file.system }}</span>
       </span>
     </button>
   </div>
@@ -107,9 +105,5 @@ const getFileIcon = (fileName: string): string => {
   white-space: nowrap;
 }
 
-.file-system {
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
 </style>
 

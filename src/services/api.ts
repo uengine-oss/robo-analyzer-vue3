@@ -15,6 +15,7 @@ import type {
   StreamEvent,
   DeleteResponse
 } from '@/types'
+import { getNormalizedUploadPath } from '@/utils/upload'
 
 // ============================================================================
 // 상수 정의
@@ -222,7 +223,10 @@ export const antlrApi = {
     formData.append('metadata', JSON.stringify(metadata))
     
     for (const file of files) {
-      formData.append('files', file, file.name)
+      // 서버가 폴더 구조를 그대로 저장/복원할 수 있도록 "파일명" 자리에 상대경로를 넣어 전송
+      // (프로젝트 최상위 폴더는 항상 metadata.projectName 으로 고정)
+      const path = getNormalizedUploadPath(file, metadata.projectName)
+      formData.append('files', file, path)
     }
     
     return postFormData<FileUploadResponse>(

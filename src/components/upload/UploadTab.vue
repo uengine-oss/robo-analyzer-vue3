@@ -7,59 +7,26 @@ import DropZone from './DropZone.vue'
 import UploadModal from './UploadModal.vue'
 import FileList from './FileList.vue'
 import JsonViewer from './JsonViewer.vue'
-import type { SystemInfo } from '@/types'
+import { getNormalizedUploadPathWithoutProject, uniqueFilesByRelPath } from '@/utils/upload'
 
 const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
 const { 
-  uploadedSystemFiles, 
+  uploadedFiles, 
   uploadedDdlFiles,
   parsedFiles,
   isProcessing,
   currentStep
 } = storeToRefs(projectStore)
 
-// 파일 추가용 hidden input refs
-const systemFileInput = ref<HTMLInputElement>()
-const ddlFileInput = ref<HTMLInputElement>()
-const currentAddTarget = ref<{ type: 'system' | 'ddl'; systemName?: string } | null>(null)
-
-// 시스템별로 파일 그룹화
-const filesBySystem = computed(() => {
-  const grouped = new Map<string, typeof uploadedSystemFiles.value>()
-  for (const file of uploadedSystemFiles.value) {
-    const systemName = file.system || '기타'
-    if (!grouped.has(systemName)) {
-      grouped.set(systemName, [])
-    }
-    grouped.get(systemName)!.push(file)
-  }
-  return grouped
-})
-
-// 시스템별로 파싱 결과 그룹화
-const parsedFilesBySystem = computed(() => {
-  const grouped = new Map<string, typeof parsedFiles.value>()
-  for (const file of parsedFiles.value) {
-    const systemName = file.system || '기타'
-    if (!grouped.has(systemName)) {
-      grouped.set(systemName, [])
-    }
-    grouped.get(systemName)!.push(file)
-  }
-  return grouped
-})
+// (시스템 개념 제거) Upload 탭에서는 업로드된 파일/DDL/파싱결과를 단순 리스트로 표시
 
 const showModal = ref(false)
 const pendingFiles = ref<File[]>([])
 const pendingMetadata = ref<{
   projectName: string
-  systems: SystemInfo[]
-  ddl: string[]
 }>({
   projectName: '',
-  systems: [],
-  ddl: []
 })
 
 // 열린 탭 관리
@@ -88,7 +55,7 @@ const isParsedFile = computed(() =>
 )
 
 const hasUploadedFiles = computed(() => 
-  uploadedSystemFiles.value.length > 0 || uploadedDdlFiles.value.length > 0
+  uploadedFiles.value.length > 0 || uploadedDdlFiles.value.length > 0
 )
 
 const hasParsedFiles = computed(() => parsedFiles.value.length > 0)
@@ -99,8 +66,6 @@ const handleOpenModal = () => {
   pendingFiles.value = []
   pendingMetadata.value = {
     projectName: '',
-    systems: [],
-    ddl: []
   }
   showModal.value = true
 }
@@ -119,114 +84,34 @@ const handleFilesDrop = (files: File[]) => {
 
 // 디렉토리 구조 분석
 const analyzeFileStructure = (files: File[]) => {
-  const result: {
-    projectName: string
-    systems: SystemInfo[]
-    ddl: string[]
-  } = {
-    projectName: '',
-    systems: [],
-    ddl: []
-  }
-  
-  // 1. 공통 루트 찾기 (모든 파일이 같은 최상위 폴더에 있는지 확인)
+  // 자동 구조 인식은 "최상위 공통 폴더 -> projectName"만 수행
   const allFirstFolders = new Set<string>()
   for (const file of files) {
     const parts = (file.webkitRelativePath || file.name).split('/')
-    if (parts.length >= 2) {
-      allFirstFolders.add(parts[0])
-    }
+    if (parts.length >= 2) allFirstFolders.add(parts[0])
   }
-  
-  // 모든 파일이 같은 최상위 폴더에 있으면 그것이 프로젝트 루트
   const hasCommonRoot = allFirstFolders.size === 1
-  
-  // 공통 루트가 있으면 프로젝트명으로 설정
-  if (hasCommonRoot) {
-    result.projectName = Array.from(allFirstFolders)[0]
+  const projectName = hasCommonRoot ? Array.from(allFirstFolders)[0] : ''
+  return {
+    projectName
   }
-  
-  const systemMap = new Map<string, string[]>()
-  
-  for (const file of files) {
-    const relativePath = file.webkitRelativePath || file.name
-    const pathParts = relativePath.split('/')
-    const fileName = pathParts[pathParts.length - 1]
-    
-    // 경로 어딘가에 DDL 폴더가 있는지 확인 (대소문자 무관)
-    const hasDdlFolder = pathParts.some(part => part.toLowerCase() === 'ddl')
-    
-    if (hasDdlFolder) {
-      // DDL 폴더 경로에 있는 파일은 DDL로 분류
-      result.ddl.push(fileName)
-    } else if (pathParts.length >= 2) {
-      // 파일의 직접 부모 폴더를 시스템명으로 사용 (파일 바로 위 폴더)
-      const parentFolder = pathParts[pathParts.length - 2]
-      
-      // 부모 폴더가 프로젝트 루트인 경우 (루트 바로 아래 파일)
-      if (hasCommonRoot && pathParts.length === 2) {
-        // 프로젝트 루트 바로 아래 파일 → 시스템 미지정
-        if (fileName.toLowerCase().endsWith('.sql')) {
-          result.ddl.push(fileName)
-        } else {
-          if (!systemMap.has('')) {
-            systemMap.set('', [])
-          }
-          systemMap.get('')!.push(fileName)
-        }
-      } else {
-        // 부모 폴더를 시스템명으로 사용
-        if (!systemMap.has(parentFolder)) {
-          systemMap.set(parentFolder, [])
-        }
-        systemMap.get(parentFolder)!.push(fileName)
-      }
-    } else {
-      // 단일 파일 (폴더 없음)
-      if (fileName.toLowerCase().endsWith('.sql')) {
-        result.ddl.push(fileName)
-      } else {
-        if (!systemMap.has('')) {
-          systemMap.set('', [])
-        }
-        systemMap.get('')!.push(fileName)
-      }
-    }
-  }
-  
-  // Map을 배열로 변환
-  for (const [name, sp] of systemMap) {
-    result.systems.push({ name, sp })
-  }
-  
-  return result
 }
 
 // 모달에서 파일 추가 시 (개별 파일 - 재분석 안함)
 const handleAddFiles = (files: File[], reanalyze: boolean = false) => {
   console.log('Adding files from modal:', files.length, 'reanalyze:', reanalyze)
   
-  // 중복 파일 제외하고 추가
-  const existingNames = new Set(pendingFiles.value.map(f => f.name))
-  const newFiles = files.filter(f => !existingNames.has(f.name))
-  
-  pendingFiles.value = [...pendingFiles.value, ...newFiles]
-  
-  // 폴더 업로드인 경우에만 메타데이터 재분석
-  if (reanalyze) {
-    pendingMetadata.value = analyzeFileStructure(pendingFiles.value)
-  }
+  // 이제 중복 기준은 "파일명"이 아니라 "프로젝트 기준 상대경로"
+  const merged = uniqueFilesByRelPath([...pendingFiles.value, ...files], pendingMetadata.value.projectName)
+  pendingFiles.value = merged
 }
 
 // 모달에서 파일 삭제 시
-const handleRemoveFile = (fileName: string) => {
-  console.log('Removing file:', fileName)
-  
-  // pendingFiles에서 해당 파일 제거
+const handleRemoveFile = (relPath: string) => {
+  console.log('Removing file:', relPath)
   pendingFiles.value = pendingFiles.value.filter(f => {
-    // 파일명만 비교 (경로 포함된 경우도 처리)
-    const name = f.webkitRelativePath ? f.webkitRelativePath.split('/').pop() : f.name
-    return name !== fileName && !f.webkitRelativePath?.endsWith('/' + fileName)
+    const p = getNormalizedUploadPathWithoutProject(f, pendingMetadata.value.projectName)
+    return p !== relPath
   })
 }
 
@@ -255,11 +140,7 @@ const detectSourceType = (files: File[]): 'oracle' | 'postgresql' | 'java' | 'py
 }
 
 // 업로드 확인
-const handleUploadConfirm = async (metadata: {
-  projectName: string
-  systems: SystemInfo[]
-  ddl: string[]
-}) => {
+const handleUploadConfirm = async (metadata: { projectName: string; ddl: string[] }) => {
   showModal.value = false
   
   if (pendingFiles.value.length === 0) {
@@ -274,16 +155,13 @@ const handleUploadConfirm = async (metadata: {
   }
   
   try {
-    // understandingMeta에서 백엔드 호환 형식 가져와서 오버라이드
     const uploadMeta = {
       ...projectStore.understandingMeta,
       projectName: metadata.projectName,
-      systems: metadata.systems,
       ddl: metadata.ddl
     }
     await projectStore.uploadFiles(pendingFiles.value, uploadMeta)
     
-    projectStore.setSystems(metadata.systems)
     projectStore.setDdl(metadata.ddl)
   } catch (error) {
     alert(`업로드 실패: ${error}`)
@@ -382,50 +260,7 @@ const activateTab = (tabId: string) => {
   })
 }
 
-// 시스템에 파일 추가
-const handleAddFilesToSystem = (systemName: string) => {
-  currentAddTarget.value = { type: 'system', systemName }
-  systemFileInput.value?.click()
-}
-
-// DDL에 파일 추가
-const handleAddDdlFiles = () => {
-  currentAddTarget.value = { type: 'ddl' }
-  ddlFileInput.value?.click()
-}
-
-// 새 시스템 추가
-const handleAddNewSystem = () => {
-  const name = prompt('새 시스템 이름을 입력하세요:')
-  if (name && name.trim()) {
-    projectStore.addSystem({ name: name.trim(), sp: [] })
-  }
-}
-
-// 파일 선택 처리
-const handleSystemFileChange = async (e: Event) => {
-  const input = e.target as HTMLInputElement
-  const files = Array.from(input.files || [])
-  
-  if (files.length > 0 && currentAddTarget.value?.systemName) {
-    await projectStore.addFilesToSystem(currentAddTarget.value.systemName, files)
-  }
-  
-  input.value = ''
-  currentAddTarget.value = null
-}
-
-const handleDdlFileChange = async (e: Event) => {
-  const input = e.target as HTMLInputElement
-  const files = Array.from(input.files || [])
-  
-  if (files.length > 0) {
-    await projectStore.addFilesToDdl(files)
-  }
-  
-  input.value = ''
-  currentAddTarget.value = null
-}
+// (시스템 개념 제거) 업로드 후 추가 파일 편집은 "업로드 설정 모달"에서 처리
 </script>
 
 <template>
@@ -441,32 +276,22 @@ const handleDdlFileChange = async (e: Event) => {
         </template>
         <template v-else>
           <div class="file-lists">
-            <!-- 시스템별 파일 목록 -->
+            <!-- 일반 파일 -->
             <div class="file-section">
               <div class="section-header">
                 <h3 class="section-title">
                   <span class="icon">📁</span>
-                  시스템 ({{ filesBySystem.size }})
+                  파일 ({{ uploadedFiles.length }})
                 </h3>
-                <button class="btn-add" @click="handleAddNewSystem" title="시스템 추가">
-                  <span>+</span>
-                </button>
               </div>
-              
-              <!-- 시스템별 그룹 -->
-              <div v-for="[systemName, files] in filesBySystem" :key="systemName" class="system-group">
-                <div class="system-header">
-                  <span class="system-name">{{ systemName }}</span>
-                  <span class="file-count">{{ files.length }}</span>
-                  <button class="btn-add-sm" @click="handleAddFilesToSystem(systemName)" title="파일 추가">+</button>
-                </div>
-                <FileList 
-                  :files="files" 
-                  @select="handleFileSelect"
-                />
-              </div>
+              <FileList
+                v-if="uploadedFiles.length > 0"
+                :files="uploadedFiles"
+                @select="handleFileSelect"
+              />
+              <div v-else class="empty-section">파일 없음</div>
             </div>
-            
+
             <!-- DDL 파일 -->
             <div class="file-section">
               <div class="section-header">
@@ -474,19 +299,16 @@ const handleDdlFileChange = async (e: Event) => {
                   <span class="icon">🗄️</span>
                   DDL ({{ uploadedDdlFiles.length }})
                 </h3>
-                <button class="btn-add" @click="handleAddDdlFiles" title="DDL 추가">
-                  <span>+</span>
-                </button>
               </div>
-              <FileList 
+              <FileList
                 v-if="uploadedDdlFiles.length > 0"
-                :files="uploadedDdlFiles" 
+                :files="uploadedDdlFiles"
                 @select="handleFileSelect"
               />
               <div v-else class="empty-section">DDL 파일 없음</div>
             </div>
-            
-            <!-- 파싱 결과 (시스템별) -->
+
+            <!-- 파싱 결과 -->
             <div class="file-section" v-if="parsedFiles.length > 0">
               <div class="section-header">
                 <h3 class="section-title">
@@ -494,18 +316,10 @@ const handleDdlFileChange = async (e: Event) => {
                   파싱 결과 ({{ parsedFiles.length }})
                 </h3>
               </div>
-              
-              <!-- 시스템별 그룹 -->
-              <div v-for="[systemName, files] in parsedFilesBySystem" :key="'parsed-' + systemName" class="system-group">
-                <div class="system-header">
-                  <span class="system-name">{{ systemName }}</span>
-                  <span class="file-count">{{ files.length }}</span>
-                </div>
-                <FileList 
-                  :files="files.map(f => ({ fileName: f.fileName, system: f.system }))" 
-                  @select="file => handleParseResultSelect(parsedFiles.find(p => p.fileName === file.fileName)!)"
-                />
-              </div>
+              <FileList
+                :files="parsedFiles.map(f => ({ fileName: f.fileName }))"
+                @select="file => handleParseResultSelect(parsedFiles.find(p => p.fileName === file.fileName)!)"
+              />
             </div>
           </div>
           
@@ -526,23 +340,6 @@ const handleDdlFileChange = async (e: Event) => {
             </button>
           </div>
           
-          <!-- Hidden file inputs -->
-          <input 
-            ref="systemFileInput"
-            type="file" 
-            multiple
-            accept=".sql,.java,.xml,.properties,.json,.py,.txt"
-            class="hidden"
-            @change="handleSystemFileChange"
-          />
-          <input 
-            ref="ddlFileInput"
-            type="file" 
-            multiple
-            accept=".sql"
-            class="hidden"
-            @change="handleDdlFileChange"
-          />
         </template>
       </div>
       
@@ -715,33 +512,6 @@ const handleDdlFileChange = async (e: Event) => {
     background: #2563EB;
     border-color: #2563EB;
   }
-}
-
-.system-group {
-  margin-bottom: var(--spacing-md);
-  padding: var(--spacing-sm);
-  background: var(--color-bg-elevated);
-  border-radius: var(--radius-sm);
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
-}
-
-.system-header {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding-bottom: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.system-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-accent-primary);
-  flex: 1;
 }
 
 .file-count {

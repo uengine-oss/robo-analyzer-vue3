@@ -20,18 +20,12 @@ export type Strategy = 'dbms' | 'framework' | 'architecture'
 // 프로젝트 메타데이터
 // ============================================================================
 
-/** 시스템 정보 */
-export interface SystemInfo {
-  name: string
-  sp: string[]
-}
-
 /** 프로젝트 메타데이터 (프론트엔드용) */
 export interface ProjectMetadata {
   sourceType: SourceType
   convertTarget: ConvertTarget
   projectName: string
-  systems: SystemInfo[]
+  /** ddl 폴더 하위 상대경로 목록 (예: 'tables/a.sql') */
   ddl: string[]
 }
 
@@ -40,7 +34,7 @@ export interface BackendRequestMetadata {
   strategy: Strategy
   target: string
   projectName: string
-  systems: SystemInfo[]
+  /** ddl 폴더 하위 상대경로 목록 (예: 'tables/a.sql') */
   ddl: string[]
 }
 
@@ -50,14 +44,12 @@ export interface BackendRequestMetadata {
 
 /** 업로드된 파일 */
 export interface UploadedFile {
-  system?: string
   fileName: string
   fileContent: string
 }
 
 /** 파싱된 파일 */
 export interface ParsedFile {
-  system: string
   fileName: string
   analysisResult: string
 }
@@ -222,7 +214,7 @@ export interface StreamEvent {
 /** 파일 업로드 응답 */
 export interface FileUploadResponse {
   projectName: string
-  systemFiles: UploadedFile[]
+  files: UploadedFile[]
   ddlFiles: UploadedFile[]
 }
 

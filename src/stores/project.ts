@@ -17,7 +17,6 @@ import type {
   BackendRequestMetadata,
   SourceType,
   ConvertTarget,
-  SystemInfo, 
   UploadedFile, 
   ParsedFile,
   GraphData,
@@ -112,14 +111,13 @@ export const useProjectStore = defineStore('project', () => {
   const projectName = ref('')
   const sourceType = ref<SourceType>('java')
   const convertTarget = ref<ConvertTarget>('java')
-  const systems = ref<SystemInfo[]>([])
   const ddl = ref<string[]>([])
   
   // ==========================================================================
   // 상태 - 파일
   // ==========================================================================
   
-  const uploadedSystemFiles = ref<UploadedFile[]>([])
+  const uploadedFiles = ref<UploadedFile[]>([])
   const uploadedDdlFiles = ref<UploadedFile[]>([])
   const parsedFiles = ref<ParsedFile[]>([])
   
@@ -178,7 +176,6 @@ export const useProjectStore = defineStore('project', () => {
     sourceType: sourceType.value,
     convertTarget: convertTarget.value,
     projectName: projectName.value,
-    systems: systems.value,
     ddl: ddl.value
   }))
   
@@ -186,7 +183,6 @@ export const useProjectStore = defineStore('project', () => {
     strategy: getStrategyFromSource(sourceType.value),
     target: sourceType.value,
     projectName: projectName.value,
-    systems: systems.value,
     ddl: ddl.value
   }))
   
@@ -194,12 +190,11 @@ export const useProjectStore = defineStore('project', () => {
     strategy: getStrategyFromTarget(convertTarget.value),
     target: convertTarget.value,
     projectName: projectName.value,
-    systems: systems.value,
     ddl: ddl.value
   }))
   
   const isValidConfig = computed(() => 
-    Boolean(projectName.value && (systems.value.length > 0 || ddl.value.length > 0))
+    Boolean(projectName.value && (uploadedFiles.value.length > 0 || uploadedDdlFiles.value.length > 0))
   )
   
   // ==========================================================================
@@ -283,10 +278,6 @@ export const useProjectStore = defineStore('project', () => {
     frameworkSteps.value = createInitialSteps(getStrategyFromTarget(target))
   }
   
-  function setSystems(s: SystemInfo[]): void {
-    systems.value = s
-  }
-  
   function setDdl(d: string[]): void {
     ddl.value = d
   }
@@ -306,7 +297,7 @@ export const useProjectStore = defineStore('project', () => {
       const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
       
       projectName.value = result.projectName
-      uploadedSystemFiles.value = result.systemFiles
+      uploadedFiles.value = result.files
       uploadedDdlFiles.value = result.ddlFiles
       
       currentStep.value = '업로드 완료'
@@ -501,7 +492,6 @@ export const useProjectStore = defineStore('project', () => {
         strategy: 'architecture' as const,
         target: 'mermaid',
         projectName: projectName.value,
-        systems: systems.value,
         ddl: ddl.value,
         classNames
       }
@@ -557,86 +547,8 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
   
-  // ==========================================================================
-  // Actions - 시스템/파일 관리
-  // ==========================================================================
-  
-  /**
-   * 시스템 추가
-   */
-  function addSystem(system: SystemInfo): void {
-    if (!systems.value.find(s => s.name === system.name)) {
-      systems.value.push(system)
-    }
-  }
-  
-  /**
-   * 시스템에 파일 추가
-   */
-  async function addFilesToSystem(systemName: string, files: File[]): Promise<void> {
-    try {
-      const meta = {
-        ...understandingMeta.value,
-        systems: [{ name: systemName, sp: files.map(f => f.name) }]
-      }
-      
-      const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
-      
-      // 파일 목록 업데이트
-      for (const file of result.systemFiles) {
-        const exists = uploadedSystemFiles.value.find(
-          f => f.fileName === file.fileName && f.system === file.system
-        )
-        if (!exists) {
-          uploadedSystemFiles.value.push(file)
-        }
-      }
-      
-      // 시스템 파일 목록 업데이트
-      const existingSystem = systems.value.find(s => s.name === systemName)
-      if (existingSystem) {
-        for (const file of files) {
-          if (!existingSystem.sp.includes(file.name)) {
-            existingSystem.sp.push(file.name)
-          }
-        }
-      }
-    } catch (error) {
-      console.error('파일 추가 실패:', error)
-      throw error
-    }
-  }
-  
-  /**
-   * DDL에 파일 추가
-   */
-  async function addFilesToDdl(files: File[]): Promise<void> {
-    try {
-      const meta = {
-        ...understandingMeta.value,
-        ddl: files.map(f => f.name)
-      }
-      
-      const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
-      
-      // 파일 목록 업데이트
-      for (const file of result.ddlFiles) {
-        if (!uploadedDdlFiles.value.find(f => f.fileName === file.fileName)) {
-          uploadedDdlFiles.value.push(file)
-        }
-      }
-      
-      // DDL 목록 업데이트
-      for (const file of files) {
-        if (!ddl.value.includes(file.name)) {
-          ddl.value.push(file.name)
-        }
-      }
-    } catch (error) {
-      console.error('DDL 추가 실패:', error)
-      throw error
-    }
-  }
+  // (시스템 개념 제거) 업로드 이후 추가/이동/삭제는 "업로드 설정 모달"에서 수행하고,
+  // 백엔드는 업로드된 폴더 구조를 기준으로 처리합니다.
   
   // ==========================================================================
   // Actions - 기타
@@ -673,11 +585,10 @@ export const useProjectStore = defineStore('project', () => {
   function reset(): void {
     // 메타데이터
     projectName.value = ''
-    systems.value = []
     ddl.value = []
     
     // 파일
-    uploadedSystemFiles.value = []
+    uploadedFiles.value = []
     uploadedDdlFiles.value = []
     parsedFiles.value = []
     
@@ -709,9 +620,8 @@ export const useProjectStore = defineStore('project', () => {
     projectName,
     sourceType,
     convertTarget,
-    systems,
     ddl,
-    uploadedSystemFiles,
+    uploadedFiles,
     uploadedDdlFiles,
     parsedFiles,
     graphData,
@@ -733,7 +643,6 @@ export const useProjectStore = defineStore('project', () => {
     setProjectName,
     setSourceType,
     setConvertTarget,
-    setSystems,
     setDdl,
     
     // Actions - Messages
@@ -756,10 +665,6 @@ export const useProjectStore = defineStore('project', () => {
     collapseDiagram,
     
     // Actions - System/File Management
-    addSystem,
-    addFilesToSystem,
-    addFilesToDdl,
-    
     // Actions - Misc
     downloadZip,
     deleteAllData,
