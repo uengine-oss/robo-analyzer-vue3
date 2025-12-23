@@ -670,7 +670,8 @@ watch(hasGraph, (has, prev) => {
 .floating-panel {
   position: absolute;
   top: 0;
-  max-height: 100vh;
+  bottom: 0;
+  height: 100%;
   min-height: 200px;
   background: #ffffff;
   border-left: 1px solid #e5e7eb;
@@ -731,8 +732,30 @@ watch(hasGraph, (has, prev) => {
   }
   
   .panel-body {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 8px;
+    
+    // 스크롤바 스타일링
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    &::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 3px;
+    }
+    
+    &::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+      
+      &:hover {
+        background: #94a3b8;
+      }
+    }
   }
 }
 

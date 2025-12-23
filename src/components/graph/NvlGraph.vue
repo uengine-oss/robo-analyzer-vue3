@@ -658,16 +658,6 @@ defineExpose({
       </div>
     </Transition>
     
-    <!-- 노드 limit 알림 (간소화) -->
-    <Transition name="slide-up">
-      <div v-if="isLimitApplied" class="limit-notice">
-        <span class="notice-icon">📊</span>
-        <span class="notice-text">
-          limit {{ MAX_DISPLAY_NODES.toLocaleString() }}개만 표시 중
-        </span>
-        <span class="notice-hint">설정에서 변경 · 더블클릭으로 확장</span>
-      </div>
-    </Transition>
   </div>
 </template>
 
@@ -744,40 +734,6 @@ defineExpose({
   font-weight: 500;
   color: #64748b;
   font-family: var(--font-mono);
-}
-
-// 노드 limit 알림 (컴팩트)
-.limit-notice {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: rgba(30, 41, 59, 0.85);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 8px;
-  backdrop-filter: blur(8px);
-  z-index: 100;
-  
-  .notice-icon {
-    font-size: 14px;
-  }
-  
-  .notice-text {
-    font-size: 12px;
-    font-weight: 500;
-    color: #f1f5f9;
-  }
-  
-  .notice-hint {
-    font-size: 10px;
-    color: #94a3b8;
-    padding-left: 6px;
-    border-left: 1px solid rgba(148, 163, 184, 0.3);
-    margin-left: 2px;
-  }
 }
 
 // 트랜지션

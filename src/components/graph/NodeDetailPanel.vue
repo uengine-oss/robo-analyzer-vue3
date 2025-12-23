@@ -121,6 +121,11 @@ const sortedRelStats = computed(() => {
     .sort((a, b) => b.count - a.count)
 })
 
+/** limit 적용 여부 (isLimitApplied 또는 totalNodes > displayedNodes로 판단) */
+const showLimitWarning = computed(() => {
+  return props.isLimitApplied || (props.totalNodes > props.displayedNodes && props.displayedNodes >= props.maxDisplayNodes)
+})
+
 // ============================================================================
 // 유틸리티 함수
 // ============================================================================
@@ -230,14 +235,16 @@ function toggleExpand(key: string): void {
           </div>
         </div>
         
-        <!-- 요약 (하단 고정) -->
+        <!-- 요약 -->
         <div class="display-summary">
           <div class="summary-main">
             <span>Displaying {{ displayedNodes || totalNodes }} nodes, {{ totalRelationships }} relationships.</span>
           </div>
-          <div class="limit-warning" v-if="isLimitApplied">
-            <span class="warning-text">limit {{ maxDisplayNodes.toLocaleString() }}개만 표시 중</span>
-            <span class="hint">설정에서 변경 · 더블클릭으로 확장</span>
+          <div class="limit-warning" v-if="showLimitWarning">
+            <span class="warning-text">
+              More than {{ maxDisplayNodes.toLocaleString() }} nodes were found; only
+              {{ maxDisplayNodes.toLocaleString() }} are visible due to the display limit.
+            </span>
           </div>
           <div class="summary-detail" v-if="hiddenNodes > 0 && !isLimitApplied">
             <span class="hidden-badge">+{{ hiddenNodes }} 숨김</span>
@@ -409,28 +416,8 @@ function toggleExpand(key: string): void {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  overflow-y: auto; // 통계 섹션 스크롤 가능
   overflow-x: hidden;
-  padding-right: 4px; // 스크롤바 공간 확보
-  
-  // 스크롤바 스타일링
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-  
-  &::-webkit-scrollbar-track {
-    background: #f1f5f9;
-    border-radius: 3px;
-  }
-  
-  &::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
-    
-    &:hover {
-      background: #94a3b8;
-    }
-  }
+  padding-bottom: 8px;
 }
 
 .stats-section {
@@ -475,11 +462,8 @@ function toggleExpand(key: string): void {
 
 .display-summary {
   margin-top: auto;
-  padding: 16px 0 0 0;
+  padding: 16px 0 8px 0;
   flex-shrink: 0;
-  position: sticky;
-  bottom: 0;
-  z-index: 10;
   
   .summary-main {
     font-size: 13px;
@@ -489,19 +473,13 @@ function toggleExpand(key: string): void {
   
   .limit-warning {
     margin-top: 8px;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 400;
-    color: #334155;
     
     .warning-text {
-      color: #dc2626;
-      font-weight: 500;
-    }
-    
-    .hint {
-      color: #94a3b8;
-      font-size: 11px;
-      margin-left: 8px;
+      color: #ea580c;
+      font-size: 12px;
+      line-height: 1.5;
     }
   }
   
