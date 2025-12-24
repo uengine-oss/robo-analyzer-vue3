@@ -520,6 +520,40 @@ function findOriginalNode(id: string): GraphNode | undefined {
 // ============================================================================
 
 /**
+ * 노드 스타일만 업데이트 (사용자 설정 변경 시)
+ */
+function updateNodeStyles(): void {
+  if (!nvlInstance.value) return
+  
+  const nodesToUpdate: NvlNode[] = []
+  
+  for (const [nodeId, node] of nodeMap.entries()) {
+    const labels = (node.properties?.labels as string[]) || []
+    const newColor = getNodeColor(labels)
+    const newSize = getNodeSize(labels)
+    
+    // 색상이나 크기가 변경되었으면 업데이트
+    if (node.color !== newColor || node.size !== newSize) {
+      const updatedNode = {
+        ...node,
+        color: newColor,
+        size: newSize
+      }
+      nodesToUpdate.push(updatedNode)
+      // nodeMap도 업데이트
+      nodeMap.set(nodeId, updatedNode)
+    }
+  }
+  
+  // 스타일이 변경된 노드가 있으면 NVL에 반영
+  if (nodesToUpdate.length > 0) {
+    nvlInstance.value.addAndUpdateElementsInGraph(nodesToUpdate, [])
+    // 통계도 업데이트 (색상이 변경되었을 수 있음)
+    updateNodeStats()
+  }
+}
+
+/**
  * 그래프 업데이트 (디바운싱 적용)
  */
 function updateGraph(): void {
@@ -656,6 +690,7 @@ watch(() => props.selectedNodeId, (newId, oldId) => {
 defineExpose({
   resetGraph,
   updateGraph,
+  updateNodeStyles,
   nodeStats,
   relationshipStats,
   nodeCount: () => nodeMap.size,

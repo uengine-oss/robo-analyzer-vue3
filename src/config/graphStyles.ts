@@ -131,11 +131,32 @@ export const NODE_SIZES: Record<string, number> = {
 // 유틸리티 함수
 // ============================================================================
 
+import { getNodeStyle } from '@/utils/nodeStyleStorage'
+
 /**
  * 노드 라벨에 따른 색상 반환
- * Table 라벨이 있으면 우선적으로 Table 색상 반환
+ * 사용자 설정 > Table 우선 > 라벨 매칭 > 기본값 순서로 반환
  */
 export function getNodeColor(labels: string[]): string {
+  // 사용자 설정 확인
+  try {
+    // 각 라벨에 대해 사용자 설정 확인
+    for (const label of labels) {
+      const style = getNodeStyle(label)
+      if (style?.color) {
+        return style.color
+      }
+      
+      const upperLabel = label.toUpperCase()
+      const upperStyle = getNodeStyle(upperLabel)
+      if (upperStyle?.color) {
+        return upperStyle.color
+      }
+    }
+  } catch (e) {
+    // nodeStyleStorage가 없으면 기본 로직 사용
+  }
+  
   // Table 우선 처리
   if (labels.includes('Table')) {
     return NODE_COLORS.Table
@@ -165,12 +186,39 @@ export function getRelationshipColor(type: string): string {
 
 /**
  * 노드 라벨에 따른 크기 반환
+ * 사용자 설정 > 라벨 매칭 > 기본값 순서로 반환
  */
 export function getNodeSize(labels: string[]): number {
+  // 사용자 설정 확인
+  try {
+    // 각 라벨에 대해 사용자 설정 확인
+    for (const label of labels) {
+      const style = getNodeStyle(label)
+      if (style?.size) {
+        return style.size
+      }
+      
+      const upperLabel = label.toUpperCase()
+      const upperStyle = getNodeStyle(upperLabel)
+      if (upperStyle?.size) {
+        return upperStyle.size
+      }
+    }
+  } catch (e) {
+    // nodeStyleStorage가 없으면 기본 로직 사용
+  }
+  
+  // 라벨 순회하며 크기 찾기
   for (const label of labels) {
     if (NODE_SIZES[label]) {
       return NODE_SIZES[label]
     }
+    
+    const upperLabel = label.toUpperCase()
+    if (NODE_SIZES[upperLabel]) {
+      return NODE_SIZES[upperLabel]
+    }
   }
+  
   return NODE_SIZES.DEFAULT
 }

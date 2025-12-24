@@ -10,7 +10,6 @@
 
 import { computed, ref } from 'vue'
 import type { GraphNode } from '@/types'
-import { NODE_COLORS } from '@/config/graphStyles'
 
 // ============================================================================
 // 타입 정의
@@ -66,6 +65,11 @@ const props = withDefaults(defineProps<Props>(), {
   maxDisplayNodes: 500
 })
 
+const emit = defineEmits<{
+  'node-type-select': [nodeType: string, topOffset: number]
+  'style-updated': []
+}>()
+
 
 // ============================================================================
 // 상태
@@ -74,18 +78,11 @@ const props = withDefaults(defineProps<Props>(), {
 /** 펼침 상태 관리 */
 const expandedKeys = ref<Set<string>>(new Set())
 
+
 // ============================================================================
 // Computed - 노드 정보
 // ============================================================================
 
-/** 노드 타입 (Labels의 첫 번째 값) */
-const nodeType = computed(() => props.node?.labels?.[0] || 'Unknown')
-
-/** 노드 타입 색상 */
-const nodeTypeColor = computed(() => {
-  const type = nodeType.value
-  return NODE_COLORS[type] || NODE_COLORS[type.toUpperCase()] || NODE_COLORS.DEFAULT
-})
 
 /** 속성 목록 */
 const properties = computed<PropertyItem[]>(() => {
@@ -155,19 +152,39 @@ function toggleExpand(key: string): void {
   }
 }
 
+/**
+ * 노드 타입 선택 핸들러
+ * 클릭한 라벨의 세로 중앙 위치를 계산하여 스타일 패널 위치 결정
+ */
+function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
+  const target = event.currentTarget as HTMLElement
+  const panelBody = target.closest('.panel-body') as HTMLElement
+  const panelHeader = target.closest('.floating-panel')?.querySelector('.panel-header') as HTMLElement
+  
+  if (!panelBody || !panelHeader) {
+    emit('node-type-select', nodeType, 100)
+    return
+  }
+  
+  const panelHeaderHeight = panelHeader.offsetHeight
+  const scrollTop = panelBody.scrollTop
+  const rect = target.getBoundingClientRect()
+  const panelBodyRect = panelBody.getBoundingClientRect()
+  
+  // 라벨의 세로 중앙 위치를 패널 내부 기준으로 계산
+  const labelCenterY = rect.top + rect.height / 2 - panelBodyRect.top + scrollTop
+  const topOffset = panelHeaderHeight + labelCenterY
+  
+  emit('node-type-select', nodeType, Math.max(0, topOffset))
+}
+
+
 </script>
 
 <template>
   <div class="panel-content">
     <!-- ========== 노드 선택 시: 속성 표시 ========== -->
     <template v-if="node">
-      <!-- 노드 타입 뱃지 -->
-      <div class="type-badge-row">
-        <span class="type-badge" :style="{ background: nodeTypeColor }">
-          {{ nodeType }}
-        </span>
-      </div>
-      
       <!-- Properties 테이블 -->
       <div class="props-table-wrapper">
         <table class="props-table">
@@ -203,7 +220,7 @@ function toggleExpand(key: string): void {
     </template>
     
     <!-- ========== 노드 미선택 시: 통계 표시 ========== -->
-    <template v-else>
+    <template v-if="!node">
       <div class="stats-wrapper">
         <!-- Node labels 섹션 -->
         <div class="stats-section">
@@ -213,8 +230,9 @@ function toggleExpand(key: string): void {
             <span 
               v-for="stat in sortedNodeStats" 
               :key="stat.label"
-              class="stat-badge"
+              class="stat-badge clickable"
               :style="{ background: stat.color }"
+              @click="handleNodeTypeClick($event, stat.label)"
             >
               {{ stat.label }} ({{ stat.count }})
             </span>
@@ -455,6 +473,23 @@ function toggleExpand(key: string): void {
   
   &.rel {
     background: #9ca3af;
+  }
+  
+  &.clickable {
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+    
+    &:hover {
+      transform: scale(1.02);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      z-index: 1;
+      opacity: 0.9;
+    }
+    
+    &:active {
+      transform: scale(1.0);
+    }
   }
 }
 

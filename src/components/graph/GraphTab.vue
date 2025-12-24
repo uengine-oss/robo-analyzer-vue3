@@ -9,6 +9,7 @@ import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
 import NvlGraph from './NvlGraph.vue'
 import NodeDetailPanel from './NodeDetailPanel.vue'
+import NodeStylePanel from './NodeStylePanel.vue'
 import VueFlowClassDiagram from './VueFlowClassDiagram.vue'
 import { getClassName, getDirectory } from '@/utils/classDiagram'
 import type { GraphNode } from '@/types'
@@ -51,6 +52,8 @@ const { value: consoleHeight, isResizing: isConsoleResizing, startResize: startC
 
 const searchQuery = ref('')
 const selectedNode = ref<GraphNode | null>(null)
+const selectedNodeType = ref<string | null>(null)
+const stylePanelTop = ref<number>(0)
 const nvlGraphRef = ref<InstanceType<typeof NvlGraph> | null>(null)
 const selectedClasses = ref<Array<{ className: string; directory: string }>>([])
 
@@ -108,11 +111,9 @@ const statusType = computed(() => {
 const hasGraph = computed(() => graphData.value?.nodes.length > 0)
 const showUmlTab = computed(() => sourceType.value === 'java' || sourceType.value === 'python')
 
-// 표시된 관계 수 (반응형으로 접근)
-const displayedRelationshipsCount = computed(() => {
-  const count = nvlGraphRef.value?.displayedRelationshipCount?.()
-  return count ?? 0
-})
+const displayedRelationshipsCount = computed(() => 
+  nvlGraphRef.value?.displayedRelationshipCount?.() ?? 0
+)
 
 // 로그가 있을 때 자동으로 콘솔 표시
 watch(graphMessages, (messages) => {
@@ -145,7 +146,21 @@ function formatTime(timestamp: string): string {
 
 function handleNodeSelect(node: GraphNode | null): void {
   selectedNode.value = node
+  selectedNodeType.value = null
+  stylePanelTop.value = 0
   if (node) showNodePanel.value = true
+}
+
+function handleNodeTypeSelect(nodeType: string, topOffset: number): void {
+  selectedNodeType.value = nodeType
+  selectedNode.value = null
+  stylePanelTop.value = topOffset
+  showNodePanel.value = true
+}
+
+function handleStylePanelClose(): void {
+  selectedNodeType.value = null
+  stylePanelTop.value = 0
 }
 
 function handleSearchSelect(node: GraphNode): void {
@@ -198,9 +213,14 @@ function removeSelectedClass(className: string, directory: string): void {
   )
 }
 
+function handleStyleUpdated(): void {
+  nvlGraphRef.value?.updateNodeStyles()
+}
+
 watch(hasGraph, (has, prev) => {
   if (has && !prev) showNodePanel.value = true
 })
+
 </script>
 
 <template>
@@ -216,6 +236,7 @@ watch(hasGraph, (has, prev) => {
             :maxNodes="nodeLimit"
             @node-select="handleNodeSelect"
           />
+          
         </template>
         <template v-else>
           <div class="empty-state">
@@ -304,7 +325,11 @@ watch(hasGraph, (has, prev) => {
     
     <!-- 플로팅: 노드 패널 -->
     <Transition name="slide-right">
-      <div class="floating-panel right" v-if="showNodePanel" :style="{ width: `${panelWidth}px` }">
+      <div 
+        class="floating-panel right" 
+        v-if="showNodePanel" 
+        :style="{ width: `${panelWidth}px` }"
+      >
         <div class="panel-header">
           <span>{{ selectedNode ? 'Node' : 'Overview' }}</span>
           <button @click="showNodePanel = false">›</button>
@@ -322,6 +347,8 @@ watch(hasGraph, (has, prev) => {
             :isProcessing="isProcessing"
             :isLimitApplied="nvlGraphRef?.isLimitApplied?.() ?? false"
             :maxDisplayNodes="nodeLimit"
+            @node-type-select="handleNodeTypeSelect"
+            @style-updated="handleStyleUpdated"
           />
         </div>
         <!-- 리사이즈 핸들 -->
@@ -330,6 +357,21 @@ watch(hasGraph, (has, prev) => {
           :class="{ resizing: isPanelResizing }"
           @mousedown="startPanelResize"
         ></div>
+        
+        <!-- 노드 스타일 설정 패널 (노드 패널 바로 왼쪽에 배치) -->
+        <Transition name="fade">
+          <div 
+            v-if="selectedNodeType" 
+            class="style-panel-wrapper"
+            :style="{ top: `${stylePanelTop}px` }"
+          >
+            <NodeStylePanel 
+              :nodeType="selectedNodeType"
+              @style-updated="handleStyleUpdated"
+              @close="handleStylePanelClose"
+            />
+          </div>
+        </Transition>
       </div>
     </Transition>
     
@@ -404,6 +446,25 @@ watch(hasGraph, (has, prev) => {
   position: absolute;
   inset: 0;
   background: #ffffff;
+  overflow: visible;
+}
+
+// ============================================================================
+// 노드 스타일 설정 패널
+// ============================================================================
+
+.style-panel-wrapper {
+  position: absolute;
+  right: 100%;
+  top: 0;
+  margin-right: 12px;
+  z-index: 1000;
+  pointer-events: none;
+  transform: translateY(-50%);
+  
+  > * {
+    pointer-events: auto;
+  }
 }
 
 // ============================================================================
@@ -1035,5 +1096,15 @@ watch(hasGraph, (has, prev) => {
 .slide-up-enter-from,
 .slide-up-leave-to {
   transform: translateY(100%);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
