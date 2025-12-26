@@ -25,6 +25,8 @@ import {
   type UmlClass,
   type ClassDiagramData
 } from '@/utils/classDiagram'
+import ELK from 'elkjs/lib/elk.bundled.js'
+import ElkEdge from './ElkEdge.vue'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
@@ -63,6 +65,12 @@ const emit = defineEmits<{
 const { fitView } = useVueFlow()
 
 // ============================================================================
+// ELK 인스턴스
+// ============================================================================
+
+const elk = new ELK()
+
+// ============================================================================
 // 상태
 // ============================================================================
 
@@ -86,108 +94,102 @@ const diagramData = ref<ClassDiagramData | null>(null)
 const isEmpty = computed(() => nodes.value.length === 0)
 
 // ============================================================================
-// 유틸리티 함수 - 노드 레이아웃
+// 유틸리티 함수 - ELK 레이아웃
 // ============================================================================
 
+type ElkResult = {
+  positions: Map<string, { x: number; y: number }>
+  edgeRoutes: Map<string, Array<{ x: number; y: number }>>
+}
+
+function isInheritance(type: string): boolean {
+  return type === 'EXTENDS' || type === 'IMPLEMENTS'
+}
+
 /**
- * 계층적 레이아웃 계산 (상속 관계 기반)
- * - 부모 클래스가 위에, 자식 클래스가 아래에 배치
- * - 같은 레벨의 클래스는 가로로 배치
+ * ELK를 사용한 레이아웃 계산 (노드 위치 + 엣지 경로)
+ * - DEPENDENCY는 레이아웃에서 제외하여 구조를 망치지 않도록 함
+ * - 포트 강제를 통해 확실한 라우팅 보장
  */
-function calculateHierarchicalLayout(
+async function layoutWithElk(
   classes: UmlClass[],
-  relationships: Array<{ source: string; target: string; type: string }>
-): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>()
-  
-  const nodeWidth = 320
-  const nodeHeight = 280
-  const gapX = 60
-  const gapY = 80
-  
-  // 상속/구현 관계로 레벨 계산
-  const childToParent = new Map<string, string[]>()
-  const parentToChildren = new Map<string, string[]>()
-  
-  for (const rel of relationships) {
-    if (rel.type === 'EXTENDS' || rel.type === 'IMPLEMENTS') {
-      // source가 자식, target이 부모
-      const parents = childToParent.get(rel.source) || []
-      parents.push(rel.target)
-      childToParent.set(rel.source, parents)
-      
-      const children = parentToChildren.get(rel.target) || []
-      children.push(rel.source)
-      parentToChildren.set(rel.target, children)
-    }
-  }
-  
-  // 루트 노드 찾기 (부모가 없는 노드)
-  const classIds = new Set(classes.map(c => c.id))
-  const roots: string[] = []
-  const nonRoots = new Set<string>()
-  
-  for (const cls of classes) {
-    const parents = childToParent.get(cls.id) || []
-    const hasParentInDiagram = parents.some(p => classIds.has(p))
-    if (!hasParentInDiagram) {
-      roots.push(cls.id)
-    } else {
-      nonRoots.add(cls.id)
-    }
-  }
-  
-  // BFS로 레벨 할당
-  const levels = new Map<string, number>()
-  const queue: { id: string; level: number }[] = roots.map(id => ({ id, level: 0 }))
-  const visited = new Set<string>()
-  
-  while (queue.length > 0) {
-    const { id, level } = queue.shift()!
-    if (visited.has(id)) continue
-    visited.add(id)
-    levels.set(id, level)
-    
-    const children = parentToChildren.get(id) || []
-    for (const child of children) {
-      if (classIds.has(child) && !visited.has(child)) {
-        queue.push({ id: child, level: level + 1 })
+  relationships: Array<{ id: string; source: string; target: string; type: string; label?: string }>
+): Promise<ElkResult> {
+  // ✅ 0) 레이아웃을 망치는 dependency는 제외
+  const layoutRels = relationships.filter(r => r.type !== 'DEPENDENCY')
+
+  // ✅ 1) ELK 그래프
+  const elkGraph: any = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'DOWN',
+      // ✅ 포트 강제 (이거 없으면 포트 side가 무시되는 케이스 많음)
+      'elk.portConstraints': 'FIXED_SIDE',
+      // ✅ spacing은 크게 잡아야 UML이 정돈됨 (300px 노드 기준)
+      'elk.spacing.nodeNode': '150',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '240',
+      // ✅ UML은 직각 라우팅이 정석 (교차/겹침이 크게 줄어듦)
+      'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+    },
+    // ✅ 2) 노드 + 포트 정의 (layoutOptions로 side 지정)
+    children: classes.map((cls) => ({
+      id: cls.id,
+      width: 300,
+      height: calculateNodeHeight(cls) + 20, // 약간 여유
+      // 노드 레벨에서도 한 번 더 강제
+      layoutOptions: {
+        'elk.portConstraints': 'FIXED_SIDE',
+      },
+      ports: [
+        { id: `${cls.id}:top`,    layoutOptions: { 'elk.port.side': 'NORTH' } },
+        { id: `${cls.id}:bottom`, layoutOptions: { 'elk.port.side': 'SOUTH' } },
+        { id: `${cls.id}:left`,   layoutOptions: { 'elk.port.side': 'WEST' } },
+        { id: `${cls.id}:right`,  layoutOptions: { 'elk.port.side': 'EAST' } },
+      ],
+    })),
+    // ✅ 3) 엣지: sources/targets는 "port id"를 사용 (포트 강제)
+    edges: layoutRels.map((rel) => {
+      const inh = isInheritance(rel.type)
+      const sourcePort = inh ? `${rel.source}:bottom` : `${rel.source}:right`
+      const targetPort = inh ? `${rel.target}:top`    : `${rel.target}:left`
+
+      return {
+        id: rel.id,
+        sources: [sourcePort],
+        targets: [targetPort],
+        // 상속은 아래로 흐르도록 약간 더 강제 (있으면 도움)
+        ...(inh ? { layoutOptions: { 'elk.layered.priority.direction': '1' } } : {}),
       }
-    }
+    }),
   }
-  
-  // 방문하지 못한 노드들 (독립 노드) 처리
-  for (const cls of classes) {
-    if (!levels.has(cls.id)) {
-      levels.set(cls.id, 0)
-    }
+
+  // ✅ 4) 레이아웃 실행
+  const out = await elk.layout(elkGraph)
+
+  // ✅ 5) 노드 위치
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const n of out.children ?? []) {
+    positions.set(n.id, { x: n.x ?? 0, y: n.y ?? 0 })
   }
-  
-  // 레벨별로 노드 그룹화
-  const levelGroups = new Map<number, string[]>()
-  for (const [id, level] of levels) {
-    const group = levelGroups.get(level) || []
-    group.push(id)
-    levelGroups.set(level, group)
+
+  // ✅ 6) 엣지 경로
+  const edgeRoutes = new Map<string, Array<{ x: number; y: number }>>()
+  for (const e of out.edges ?? []) {
+    const section = e.sections?.[0]
+    if (!section) continue
+
+    const pts: Array<{ x: number; y: number }> = []
+    if (section.startPoint) pts.push(section.startPoint)
+    if (section.bendPoints?.length) pts.push(...section.bendPoints)
+    if (section.endPoint) pts.push(section.endPoint)
+
+    edgeRoutes.set(e.id, pts)
   }
-  
-  // 위치 계산
-  const maxLevel = Math.max(...Array.from(levelGroups.keys()))
-  
-  for (let level = 0; level <= maxLevel; level++) {
-    const group = levelGroups.get(level) || []
-    const totalWidth = group.length * nodeWidth + (group.length - 1) * gapX
-    const startX = -totalWidth / 2
-    
-    group.forEach((id, index) => {
-      positions.set(id, {
-        x: startX + index * (nodeWidth + gapX),
-        y: level * (nodeHeight + gapY)
-      })
-    })
-  }
-  
-  return positions
+
+  return { positions, edgeRoutes }
 }
 
 /**
@@ -287,9 +289,9 @@ function formatMethod(method: {
 // ============================================================================
 
 /**
- * 다이어그램 데이터 생성 및 VueFlow 노드/엣지 변환
+ * 다이어그램 데이터 생성 및 VueFlow 노드/엣지 변환 (ELK 레이아웃 사용)
  */
-function buildDiagram(): void {
+async function buildDiagram(): Promise<void> {
   if (!props.selectedClasses.length || !props.graphNodes.length) {
     nodes.value = []
     edges.value = []
@@ -320,10 +322,10 @@ function buildDiagram(): void {
   
   diagramData.value = data
   
-  // 3. 계층적 레이아웃 계산 (상속 관계 기반)
-  const positions = calculateHierarchicalLayout(data.classes, data.relationships)
+  // 3. ELK 레이아웃 실행
+  const { positions, edgeRoutes } = await layoutWithElk(data.classes, data.relationships)
   
-  // 4. VueFlow 노드 생성
+  // 4. VueFlow 노드 생성 (ELK positions 사용)
   nodes.value = data.classes.map(cls => {
     const pos = positions.get(cls.id) || { x: 0, y: 0 }
     const isSelected = props.selectedClasses.some(
@@ -352,11 +354,12 @@ function buildDiagram(): void {
     }
   })
   
-  // 5. VueFlow 엣지 생성 (머메이드 스타일)
+  // 5. VueFlow 엣지 생성 (ELK가 준 route를 data로 넣음)
   edges.value = data.relationships.map(rel => {
+    const route = edgeRoutes.get(rel.id) || null
+    const isDep = rel.type === 'DEPENDENCY'
     const arrowStyle = ARROW_STYLES[rel.type] || ARROW_STYLES.ASSOCIATION
-    const isDependency = rel.type === 'DEPENDENCY'
-    const lineColor = isDependency ? '#666666' : '#333333'
+    const lineColor = isDep ? '#666666' : '#333333'
     
     // style 문자열을 CSSProperties 객체로 변환
     const styleObj: Record<string, string> = {}
@@ -373,7 +376,8 @@ function buildDiagram(): void {
       id: rel.id,
       source: rel.source,
       target: rel.target,
-      type: 'smoothstep',
+      // ✅ route 있으면 elkEdge로, 없으면 기본 bezier로
+      type: route ? 'elkEdge' : 'bezier',
       animated: false,
       label: rel.label || '',
       labelStyle: { fontSize: 10, fill: '#333333', fontWeight: 500 },
@@ -383,7 +387,11 @@ function buildDiagram(): void {
         type: arrowStyle.markerEnd as any,
         color: lineColor
       } as any,
-      data: { relationship: rel }
+      // ELK 경로 points를 넘김 (없으면 null)
+      data: {
+        relationship: rel,
+        points: route,
+      }
     } as unknown as Edge
   })
   
@@ -421,14 +429,25 @@ function onNodeDoubleClick(event: NodeMouseEvent): void {
 }
 
 // ============================================================================
-// 워처
+// 워처 (async 호출 처리 + race 방지)
 // ============================================================================
+
+let layoutRunId = 0
+
+async function rebuildSafely(): Promise<void> {
+  const myId = ++layoutRunId
+  await buildDiagram()
+  // 최신 호출만 적용되도록 (race 방지)
+  if (myId !== layoutRunId) {
+    return
+  }
+}
 
 // selectedClasses 변경 시 다이어그램 재생성
 watch(
   () => props.selectedClasses,
   () => {
-    buildDiagram()
+    rebuildSafely()
   },
   { deep: true, immediate: true }
 )
@@ -438,7 +457,7 @@ watch(
   () => props.depth,
   () => {
     if (props.selectedClasses.length > 0) {
-      buildDiagram()
+      rebuildSafely()
     }
   }
 )
@@ -448,7 +467,7 @@ watch(
   () => props.graphNodes.length,
   () => {
     if (props.selectedClasses.length > 0) {
-      buildDiagram()
+      rebuildSafely()
     }
   }
 )
@@ -458,7 +477,7 @@ watch(
 // ============================================================================
 
 onMounted(() => {
-  buildDiagram()
+  rebuildSafely()
 })
 </script>
 
@@ -496,6 +515,11 @@ onMounted(() => {
         pannable
         zoomable
       />
+      
+      <!-- ELK 커스텀 엣지 -->
+      <template #edge-elkEdge="edgeProps">
+        <ElkEdge v-bind="edgeProps" />
+      </template>
       
       <!-- 커스텀 클래스 노드 (UML 클래스 다이어그램 표준) -->
       <!-- 
@@ -603,13 +627,6 @@ onMounted(() => {
             <line x1="12" y1="8" x2="40" y2="8" stroke="#333" stroke-width="2"/>
           </svg>
           <span>합성 (composition)</span>
-        </div>
-        <div class="legend-item">
-          <svg class="legend-icon" viewBox="0 0 40 16">
-            <polygon points="0,8 6,4 12,8 6,12" fill="none" stroke="#333" stroke-width="1.5"/>
-            <line x1="12" y1="8" x2="40" y2="8" stroke="#333" stroke-width="2"/>
-          </svg>
-          <span>집합 (aggregation)</span>
         </div>
         <div class="legend-item">
           <svg class="legend-icon" viewBox="0 0 40 16">

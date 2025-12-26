@@ -52,6 +52,7 @@ const { value: consoleHeight, isResizing: isConsoleResizing, startResize: startC
 
 const searchQuery = ref('')
 const selectedNode = ref<GraphNode | null>(null)
+const selectedRelationship = ref<GraphLink | null>(null)
 const selectedNodeType = ref<string | null>(null)
 const stylePanelTop = ref<number>(0)
 const nvlGraphRef = ref<InstanceType<typeof NvlGraph> | null>(null)
@@ -146,9 +147,18 @@ function formatTime(timestamp: string): string {
 
 function handleNodeSelect(node: GraphNode | null): void {
   selectedNode.value = node
+  selectedRelationship.value = null
   selectedNodeType.value = null
   stylePanelTop.value = 0
   if (node) showNodePanel.value = true
+}
+
+function handleRelationshipSelect(relationship: GraphLink | null): void {
+  selectedRelationship.value = relationship
+  selectedNode.value = null
+  selectedNodeType.value = null
+  stylePanelTop.value = 0
+  if (relationship) showNodePanel.value = true
 }
 
 function handleNodeTypeSelect(nodeType: string, topOffset: number): void {
@@ -233,8 +243,10 @@ watch(hasGraph, (has, prev) => {
             ref="nvlGraphRef"
             :graphData="graphData!"
             :selectedNodeId="selectedNode?.id"
+            :selectedRelationshipId="selectedRelationship?.id"
             :maxNodes="nodeLimit"
             @node-select="handleNodeSelect"
+            @relationship-select="handleRelationshipSelect"
           />
           
         </template>
@@ -331,12 +343,13 @@ watch(hasGraph, (has, prev) => {
         :style="{ width: `${panelWidth}px` }"
       >
         <div class="panel-header">
-          <span>{{ selectedNode ? 'Node' : 'Overview' }}</span>
+          <span>{{ selectedNode ? 'Node' : selectedRelationship ? 'Relationship' : 'Overview' }}</span>
           <button @click="showNodePanel = false">›</button>
         </div>
         <div class="panel-body">
           <NodeDetailPanel 
             :node="selectedNode"
+            :relationship="selectedRelationship"
             :nodeStats="nvlGraphRef?.nodeStats"
             :relationshipStats="nvlGraphRef?.relationshipStats"
             :totalNodes="graphData?.nodes.length || 0"

@@ -18,7 +18,7 @@ import {
   PanInteraction, 
   ZoomInteraction 
 } from '@neo4j-nvl/interaction-handlers'
-import type { GraphData, GraphNode, NvlNode, NvlRelationship } from '@/types'
+import type { GraphData, GraphNode, GraphLink, NvlNode, NvlRelationship } from '@/types'
 import { getNodeColor, getRelationshipColor, getNodeSize, NODE_COLORS } from '@/config/graphStyles'
 
 // ============================================================================
@@ -28,6 +28,7 @@ import { getNodeColor, getRelationshipColor, getNodeSize, NODE_COLORS } from '@/
 interface Props {
   graphData: GraphData
   selectedNodeId?: string
+  selectedRelationshipId?: string
   /** 최대 표시 노드 개수 */
   maxNodes?: number
 }
@@ -62,14 +63,18 @@ const NVL_OPTIONS = {
   // 노드 클릭시 자동 이동 비활성화
   panOnClick: false,
   zoomOnClick: false,
-  // 레이아웃 움직임 최소화
-  layout: 'force-directed',
+  layout: 'forceDirected' as const,
   layoutOptions: {
-    // 레이아웃 안정화 설정 - 움직임 최소화
     iterations: 100,
     animationDuration: 0,
-    disableAnimation: true
-  }
+    disableAnimation: true,
+    updateLayoutOnChange: false,
+    physics: {
+      enabled: false
+    },
+    updateOnDrag: false,
+    updateOnClick: false
+  } as any
 } as const
 
 // ============================================================================
@@ -82,6 +87,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'node-select': [node: GraphNode | null]
+  'relationship-select': [relationship: GraphLink | null]
 }>()
 
 // ============================================================================
@@ -150,7 +156,7 @@ let updatePending = false
 /**
  * GraphNode를 NVL 형식으로 변환
  */
-function toNvlNode(node: GraphNode): NvlNode {
+function toNvlNode(node: GraphNode, isSelected: boolean = false): NvlNode {
   const labels = node.labels || []
   const name = (node.properties?.name as string) 
     || labels[0] 
@@ -161,6 +167,7 @@ function toNvlNode(node: GraphNode): NvlNode {
     caption: name,
     color: getNodeColor(labels),
     size: getNodeSize(labels),
+    selected: isSelected,
     properties: { ...node.properties, labels }
   }
 }
@@ -168,29 +175,18 @@ function toNvlNode(node: GraphNode): NvlNode {
 /**
  * GraphLink를 NVL Relationship 형식으로 변환
  */
-function toNvlRelationship(link: GraphData['links'][0]): NvlRelationship {
+function toNvlRelationship(link: GraphData['links'][0], isSelected: boolean = false): NvlRelationship {
   return {
     id: link.id,
     from: link.source,
     to: link.target,
     caption: link.type,
     color: getRelationshipColor(link.type),
+    selected: isSelected,
     properties: link.properties
   }
 }
 
-/**
- * 플레이스홀더 노드 생성 (관계의 누락된 노드용)
- */
-function createPlaceholderNode(nodeId: string): NvlNode {
-  return {
-    id: nodeId,
-    caption: '...',
-    color: '#808080',
-    size: 15,
-    properties: { labels: ['_Placeholder'], _isPlaceholder: true }
-  }
-}
 
 // ============================================================================
 // 통계 업데이트
@@ -288,17 +284,14 @@ function processNextBatch(): void {
   relRenderQueue.length = 0
   relRenderQueue.push(...remainingRels)
   
-  // NVL에 추가
   if (nodeBatch.length > 0 || relBatch.length > 0) {
     nvlInstance.value.addAndUpdateElementsInGraph(nodeBatch, relBatch)
   }
   
-  // 진행률 업데이트
   const totalNodes = nodeMap.size
   loadingProgress.value = Math.round((renderedNodeIds.size / totalNodes) * 100)
   pendingNodeCount.value = nodeRenderQueue.length
   
-  // 다음 배치 예약 또는 완료
   if (nodeRenderQueue.length > 0) {
     batchTimerId = setTimeout(processNextBatch, BATCH_INTERVAL)
   } else {
@@ -359,49 +352,46 @@ function syncGraphData(data: GraphData): { newNodes: NvlNode[]; newRels: NvlRela
   hiddenNodeCount.value = Math.max(0, data.nodes.length - maxDisplayNodes)
   isLimitApplied.value = data.nodes.length > maxDisplayNodes
   
-  // 노드 처리 (limit 적용)
   for (const node of limitedNodes) {
-    const nvlNode = toNvlNode(node)
+    const isSelected = props.selectedNodeId === node.id
     const existing = nodeMap.get(node.id)
     
-    if (!existing || existing.properties?._isPlaceholder) {
-      nodeMap.set(node.id, nvlNode)
-      newNodes.push(nvlNode)
+    if (existing && existing.selected === isSelected) {
+      continue
     }
+    
+    const nvlNode = toNvlNode(node, isSelected)
+    nodeMap.set(node.id, nvlNode)
+    newNodes.push(nvlNode)
   }
   
-  // 관계 처리 (표시된 노드 간의 관계만, 플레이스홀더 노드는 제외)
-  // 표시된 관계만 새로 계산 (기존 relationshipMap과 독립적으로 계산)
   const displayedRels = new Map<string, NvlRelationship>()
   
   for (const link of data.links) {
-    // 양쪽 노드가 모두 표시된 노드인 경우에만 관계 추가
-    const sourceDisplayed = displayedNodeIds.has(link.source)
-    const targetDisplayed = displayedNodeIds.has(link.target)
-    
-    // 둘 다 표시된 노드여야만 관계 추가 (플레이스홀더 노드는 제외)
-    if (!sourceDisplayed || !targetDisplayed) continue
-    
-    // 관계 변환 및 추가
-    const nvlRel = toNvlRelationship(link)
-    displayedRels.set(link.id, nvlRel)
-    
-    // 새로 추가할 관계인지 확인 (렌더링 큐에 추가하기 위해)
-    if (!relationshipMap.has(link.id)) {
-      newRels.push(nvlRel)
+    if (!displayedNodeIds.has(link.source) || !displayedNodeIds.has(link.target)) {
+      continue
     }
+    
+    const isRelSelected = props.selectedRelationshipId === link.id
+    const existing = relationshipMap.get(link.id)
+    
+    if (existing && existing.selected === isRelSelected) {
+      displayedRels.set(link.id, existing)
+      continue
+    }
+    
+    const nvlRel = toNvlRelationship(link, isRelSelected)
+    displayedRels.set(link.id, nvlRel)
+    newRels.push(nvlRel)
   }
   
-  // relationshipMap을 표시된 관계로 완전히 교체
   relationshipMap.clear()
   for (const [relId, rel] of displayedRels.entries()) {
     relationshipMap.set(relId, rel)
   }
   
-  // 표시된 관계 수 업데이트 (표시된 노드 간의 관계만 카운트)
   displayedRelationshipCount.value = relationshipMap.size
   
-  // 통계 업데이트 (변경이 있을 때만)
   if (newNodes.length > 0 || newRels.length > 0) {
     updateNodeStats()
     updateRelationshipStats()
@@ -490,19 +480,27 @@ function setupInteractions(): void {
   const nvl = nvlInstance.value
   const click = new ClickInteraction(nvl)
   
-  // 노드 클릭
   click.updateCallback('onNodeClick', (node: { id: string } | null) => {
     if (!node?.id) return
     const graphNode = findOriginalNode(node.id)
-    if (graphNode) emit('node-select', graphNode)
+    if (graphNode) {
+      emit('node-select', graphNode)
+    }
   })
   
-  // 캔버스 클릭 (선택 해제)
+  click.updateCallback('onRelationshipClick', (relationship: { id: string } | null) => {
+    if (!relationship?.id) return
+    const graphLink = findOriginalRelationship(relationship.id)
+    if (graphLink) {
+      emit('relationship-select', graphLink)
+    }
+  })
+  
   click.updateCallback('onCanvasClick', () => {
     emit('node-select', null)
+    emit('relationship-select', null)
   })
   
-  // 드래그, 팬, 줌 인터랙션
   new DragNodeInteraction(nvl)
   new PanInteraction(nvl)
   new ZoomInteraction(nvl)
@@ -513,6 +511,13 @@ function setupInteractions(): void {
  */
 function findOriginalNode(id: string): GraphNode | undefined {
   return props.graphData.nodes.find(n => n.id === id)
+}
+
+/**
+ * 원본 GraphLink 찾기
+ */
+function findOriginalRelationship(id: string): GraphLink | undefined {
+  return props.graphData.links.find(l => l.id === id)
 }
 
 // ============================================================================
@@ -532,7 +537,6 @@ function updateNodeStyles(): void {
     const newColor = getNodeColor(labels)
     const newSize = getNodeSize(labels)
     
-    // 색상이나 크기가 변경되었으면 업데이트
     if (node.color !== newColor || node.size !== newSize) {
       const updatedNode = {
         ...node,
@@ -540,15 +544,12 @@ function updateNodeStyles(): void {
         size: newSize
       }
       nodesToUpdate.push(updatedNode)
-      // nodeMap도 업데이트
       nodeMap.set(nodeId, updatedNode)
     }
   }
   
-  // 스타일이 변경된 노드가 있으면 NVL에 반영
   if (nodesToUpdate.length > 0) {
     nvlInstance.value.addAndUpdateElementsInGraph(nodesToUpdate, [])
-    // 통계도 업데이트 (색상이 변경되었을 수 있음)
     updateNodeStats()
   }
 }
@@ -651,7 +652,6 @@ watch(() => props.graphData, (newData) => {
   }
 }, { deep: true })
 
-// maxNodes 변경 감시 - 변경시 그래프 재생성
 watch(() => props.maxNodes, () => {
   if (props.graphData.nodes.length > 0) {
     resetGraph()
@@ -659,29 +659,52 @@ watch(() => props.maxNodes, () => {
   }
 })
 
-// 선택된 노드 하이라이트 - 레이아웃 재계산 없이 스타일만 업데이트
-watch(() => props.selectedNodeId, (newId, oldId) => {
-  if (!nvlInstance.value) return
+watch([() => props.selectedNodeId, () => props.selectedRelationshipId], ([newNodeId, newRelId], [oldNodeId, oldRelId]) => {
+  if (!nvlInstance.value || (newNodeId === oldNodeId && newRelId === oldRelId)) return
   
   const nodesToUpdate: NvlNode[] = []
+  const relsToUpdate: NvlRelationship[] = []
   
-  // 이전 선택 노드 원래 색상으로 복원
-  if (oldId && nodeMap.has(oldId)) {
-    const oldNode = nodeMap.get(oldId)!
-    nodesToUpdate.push({ ...oldNode })
+  if (oldNodeId) {
+    const graphNode = props.graphData.nodes.find(n => n.id === oldNodeId)
+    if (graphNode) {
+      const restoredNode = toNvlNode(graphNode, false)
+      nodesToUpdate.push(restoredNode)
+      nodeMap.set(oldNodeId, restoredNode)
+    }
   }
   
-  // 새로 선택된 노드 하이라이트
-  if (newId && nodeMap.has(newId)) {
-    const newNode = nodeMap.get(newId)!
-    nodesToUpdate.push({ ...newNode, color: '#3b82f6' })
+  if (newNodeId) {
+    const graphNode = props.graphData.nodes.find(n => n.id === newNodeId)
+    if (graphNode) {
+      const highlightedNode = toNvlNode(graphNode, true)
+      nodesToUpdate.push(highlightedNode)
+      nodeMap.set(newNodeId, highlightedNode)
+    }
   }
   
-  if (nodesToUpdate.length > 0) {
-    // 노드 스타일만 업데이트 (레이아웃 재계산 안함)
-    nvlInstance.value.addAndUpdateElementsInGraph(nodesToUpdate, [])
+  if (oldRelId) {
+    const graphLink = props.graphData.links.find(l => l.id === oldRelId)
+    if (graphLink) {
+      const restoredRel = toNvlRelationship(graphLink, false)
+      relsToUpdate.push(restoredRel)
+      relationshipMap.set(oldRelId, restoredRel)
+    }
   }
-})
+  
+  if (newRelId) {
+    const graphLink = props.graphData.links.find(l => l.id === newRelId)
+    if (graphLink) {
+      const highlightedRel = toNvlRelationship(graphLink, true)
+      relsToUpdate.push(highlightedRel)
+      relationshipMap.set(newRelId, highlightedRel)
+    }
+  }
+  
+  if (nodesToUpdate.length > 0 || relsToUpdate.length > 0) {
+    nvlInstance.value?.updateElementsInGraph(nodesToUpdate, relsToUpdate)
+  }
+}, { immediate: false })
 
 // ============================================================================
 // Public API (외부 노출)

@@ -33,10 +33,8 @@ export const useSessionStore = defineStore('session', () => {
     loadFromStorage(STORAGE_KEY_API_KEY, '')
   )
   
-  // 현재 활성 탭 - 로컬스토리지에서 로드
-  const activeTab = ref<string>(
-    loadFromStorage(STORAGE_KEY_ACTIVE_TAB, 'upload')
-  )
+  // 현재 활성 탭 - 새로고침 시 항상 업로드 탭으로 시작
+  const activeTab = ref<string>('upload')
   
   // 세션 ID 변경 시 로컬스토리지에 저장
   watch(sessionId, (newId) => {
@@ -46,11 +44,6 @@ export const useSessionStore = defineStore('session', () => {
   // API Key 변경 시 로컬스토리지에 저장
   watch(apiKey, (newKey) => {
     saveToStorage(STORAGE_KEY_API_KEY, newKey)
-  }, { immediate: true })
-  
-  // 활성 탭 변경 시 로컬스토리지에 저장
-  watch(activeTab, (newTab) => {
-    saveToStorage(STORAGE_KEY_ACTIVE_TAB, newTab)
   }, { immediate: true })
   
   // 새 세션 생성 (로컬스토리지도 초기화)
@@ -65,7 +58,6 @@ export const useSessionStore = defineStore('session', () => {
   const clearSession = () => {
     removeFromStorage(STORAGE_KEY_SESSION_ID)
     removeFromStorage(STORAGE_KEY_API_KEY)
-    removeFromStorage(STORAGE_KEY_ACTIVE_TAB)
     sessionId.value = uuidv4()
     apiKey.value = ''
     activeTab.value = 'upload'

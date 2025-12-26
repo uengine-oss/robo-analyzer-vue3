@@ -120,6 +120,7 @@ export interface NvlNode {
   caption?: string
   color?: string
   size?: number
+  selected?: boolean  // NVL이 지원하는 selected 속성
   properties?: Record<string, unknown>
 }
 
@@ -130,6 +131,7 @@ export interface NvlRelationship {
   to: string
   caption?: string
   color?: string
+  selected?: boolean  // NVL이 지원하는 selected 속성
   properties?: Record<string, unknown>
 }
 

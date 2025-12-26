@@ -9,7 +9,7 @@
  */
 
 import { computed, ref } from 'vue'
-import type { GraphNode } from '@/types'
+import type { GraphNode, GraphLink } from '@/types'
 
 // ============================================================================
 // 타입 정의
@@ -22,6 +22,7 @@ interface Stats {
 
 interface Props {
   node: GraphNode | null
+  relationship: GraphLink | null
   nodeStats?: Map<string, Stats>
   relationshipStats?: Map<string, Stats>
   totalNodes?: number
@@ -84,8 +85,8 @@ const expandedKeys = ref<Set<string>>(new Set())
 // ============================================================================
 
 
-/** 속성 목록 */
-const properties = computed<PropertyItem[]>(() => {
+/** 속성 목록 (노드용) */
+const nodeProperties = computed<PropertyItem[]>(() => {
   if (!props.node?.properties) return []
   
   return Object.entries(props.node.properties)
@@ -95,6 +96,34 @@ const properties = computed<PropertyItem[]>(() => {
       value: typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value),
       isMultiLine: typeof value === 'object' || String(value).includes('\n')
     }))
+})
+
+/** 속성 목록 (관계용) */
+const relationshipProperties = computed<PropertyItem[]>(() => {
+  if (!props.relationship) return []
+  
+  const propsList: PropertyItem[] = [{
+    key: '<id>',
+    value: props.relationship.id,
+    isMultiLine: false
+  }]
+  
+  if (props.relationship.properties) {
+    const propEntries = Object.entries(props.relationship.properties)
+      .map(([key, value]) => ({
+        key,
+        value: typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value),
+        isMultiLine: typeof value === 'object' || String(value).includes('\n')
+      }))
+    propsList.push(...propEntries)
+  }
+  
+  return propsList
+})
+
+/** 표시할 속성 목록 (노드 또는 관계) */
+const properties = computed(() => {
+  return props.node ? nodeProperties.value : relationshipProperties.value
 })
 
 
@@ -183,8 +212,17 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 
 <template>
   <div class="panel-content">
-    <!-- ========== 노드 선택 시: 속성 표시 ========== -->
-    <template v-if="node">
+    <!-- ========== 노드 또는 관계 선택 시: 속성 표시 ========== -->
+    <template v-if="node || relationship">
+      <!-- 노드/관계 타입 표시 -->
+      <div class="type-header" v-if="node">
+        <span class="type-label">Node</span>
+        <span class="type-badge" v-for="label in node.labels" :key="label">{{ label }}</span>
+      </div>
+      <div class="type-header" v-if="relationship">
+        <span class="type-badge">{{ relationship.type }}</span>
+      </div>
+      
       <!-- Properties 테이블 -->
       <div class="props-table-wrapper">
         <table class="props-table">
@@ -195,6 +233,9 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
             </tr>
           </thead>
           <tbody>
+            <tr v-if="properties.length === 0">
+              <td colspan="2" class="cell-empty">속성이 없습니다</td>
+            </tr>
             <tr v-for="prop in properties" :key="prop.key">
               <td class="cell-key">{{ prop.key }}</td>
               <td class="cell-value">
@@ -219,8 +260,8 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
       
     </template>
     
-    <!-- ========== 노드 미선택 시: 통계 표시 ========== -->
-    <template v-if="!node">
+    <!-- ========== 노드/관계 미선택 시: 통계 표시 ========== -->
+    <template v-if="!node && !relationship">
       <div class="stats-wrapper">
         <!-- Node labels 섹션 -->
         <div class="stats-section">
@@ -292,18 +333,30 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 // 타입 뱃지
 // ============================================================================
 
-.type-badge-row {
+.type-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.type-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
 }
 
 .type-badge {
   display: inline-block;
-  padding: 6px 14px;
+  padding: 4px 10px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-radius: 4px;
+  background: #3b82f6;
   color: white;
 }
 
@@ -381,6 +434,13 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 
 .cell-value {
   background: white;
+}
+
+.cell-empty {
+  text-align: center;
+  padding: 20px;
+  color: #9ca3af;
+  font-style: italic;
 }
 
 // ============================================================================

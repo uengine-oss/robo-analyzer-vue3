@@ -16,16 +16,20 @@ import type { GraphNode, GraphLink } from '@/types'
 export const CLASS_LABELS = ['CLASS', 'Class', 'INTERFACE', 'Interface', 'ENUM', 'Enum']
 
 /** 클래스 관계 타입 */
-export const CLASS_RELATION_TYPES = ['EXTENDS', 'IMPLEMENTS', 'ASSOCIATION', 'AGGREGATION', 'COMPOSITION', 'DEPENDENCY']
+export const CLASS_RELATION_TYPES = ['EXTENDS', 'IMPLEMENTS', 'ASSOCIATION', 'COMPOSITION', 'DEPENDENCY']
 
 /** 소유 관계 타입 (상속 체인 필터링에 사용) */
-export const OWNERSHIP_TYPES = new Set(['COMPOSITION', 'AGGREGATION', 'ASSOCIATION'])
+export const OWNERSHIP_TYPES = new Set(['COMPOSITION', 'ASSOCIATION'])
 
-/** 관계 강도 (중복 제거 시 사용) */
+/** 관계 강도 (중복 제거 시 사용)
+ * 우선순위: EXTENDS/IMPLEMENTS > COMPOSITION > ASSOCIATION > DEPENDENCY
+ */
 export const RELATION_STRENGTH: Record<string, number> = {
+  EXTENDS: 4,
+  IMPLEMENTS: 4,
   COMPOSITION: 3,
-  AGGREGATION: 2,
-  ASSOCIATION: 1
+  ASSOCIATION: 2,
+  DEPENDENCY: 1
 }
 
 /** UML 표기법 접근제어자 매핑 */
@@ -41,7 +45,6 @@ export const ARROW_STYLES: Record<string, { markerEnd: string; style: string; la
   EXTENDS: { markerEnd: 'arrowclosed', style: 'stroke: #333333; stroke-width: 2px;' },
   IMPLEMENTS: { markerEnd: 'arrowclosed', style: 'stroke: #333333; stroke-width: 2px; stroke-dasharray: 6 4;' },
   ASSOCIATION: { markerEnd: 'arrow', style: 'stroke: #333333; stroke-width: 1.5px;' },
-  AGGREGATION: { markerEnd: 'arrow', style: 'stroke: #333333; stroke-width: 2px;' },
   COMPOSITION: { markerEnd: 'arrow', style: 'stroke: #333333; stroke-width: 2px;' },
   DEPENDENCY: { markerEnd: 'arrow', style: 'stroke: #666666; stroke-width: 1.5px; stroke-dasharray: 4 3;' }
 }
@@ -93,6 +96,8 @@ export interface UmlRelationship {
   type: string
   label?: string
   multiplicity?: string
+  /** DEPENDENCY의 경우, 의존 이유 목록 (여러 DEPENDENCY 병합 시 사용) */
+  reasons?: string[]
 }
 
 /** VueFlow 노드 데이터 */
@@ -228,14 +233,26 @@ export function buildOwnershipMap(links: GraphLink[]): Map<string, Map<string, s
 
 /**
  * 노이즈 DEPENDENCY인지 판단
- * 상위 클래스에서 이미 소유 관계가 있는 타겟으로의 DEPENDENCY는 노이즈
+ * 1. 상위 클래스에서 이미 소유 관계가 있는 타겟으로의 DEPENDENCY는 노이즈
+ * 2. 상속/구현 관계가 있으면 DEPENDENCY는 노이즈 (더 강한 관계가 있음)
  */
 export function isNoiseDependency(
   sourceId: string,
   targetId: string,
   inheritanceMap: Map<string, string[]>,
-  ownershipMap: Map<string, Map<string, string>>
+  ownershipMap: Map<string, Map<string, string>>,
+  allLinks: GraphLink[]
 ): boolean {
+  // 1) 상속/구현 관계가 있으면 DEPENDENCY는 노이즈
+  const hasInheritance = allLinks.some(link => {
+    const type = link.type?.toUpperCase()
+    return (type === 'EXTENDS' || type === 'IMPLEMENTS') &&
+           link.source === sourceId &&
+           link.target === targetId
+  })
+  if (hasInheritance) return true
+  
+  // 2) 상위 클래스에서 이미 소유 관계가 있는 타겟으로의 DEPENDENCY는 노이즈
   const ancestors = getAllAncestors(sourceId, inheritanceMap)
   
   for (const ancestor of ancestors) {
@@ -269,56 +286,116 @@ export function filterNoiseDependencies(
     // value object DEPENDENCY 제외
     if (isValueObjectDependency(link)) return false
     
-    // 노이즈 DEPENDENCY 제외
-    return !isNoiseDependency(link.source, link.target, inheritanceMap, ownershipMap)
+    // 노이즈 DEPENDENCY 제외 (allLinks 전달)
+    return !isNoiseDependency(link.source, link.target, inheritanceMap, ownershipMap, links)
   })
 }
 
 /**
- * 관계 중복 제거 (더 강한 관계만 유지)
+ * 관계 중복 제거 및 병합
+ * 
+ * 1. 여러 관계 타입이 있을 때: 상위 관계만 우선 표시 (EXTENDS/IMPLEMENTS는 동시 표시)
+ * 2. 같은 관계 타입이 여러 개 있을 때: 하나로 병합하고 source_member를 reasons로 수집
+ * 
+ * 우선순위: EXTENDS/IMPLEMENTS (4) > COMPOSITION (3) > ASSOCIATION (2) > DEPENDENCY (1)
  */
 export function dedupeRelationships(links: GraphLink[]): GraphLink[] {
-  const picked = new Map<string, GraphLink>()
-  const passthrough: GraphLink[] = []
+  // 같은 두 노드 사이의 관계들을 그룹화: key -> 관계 타입별 맵
+  const relationshipGroups = new Map<string, Map<string, GraphLink[]>>()
   
   for (const link of links) {
     const type = link.type?.toUpperCase() || ''
     const key = `${link.source}::${link.target}`
     
-    // 상속/구현/의존은 그대로 유지 (중복만 제거)
-    if (!RELATION_STRENGTH[type]) {
-      const dupKey = `${key}::${type}`
-      if (!picked.has(dupKey)) {
-        picked.set(dupKey, link)
-        passthrough.push(link)
-      }
-      continue
+    let typeMap = relationshipGroups.get(key)
+    if (!typeMap) {
+      typeMap = new Map()
+      relationshipGroups.set(key, typeMap)
     }
     
-    // ASSOCIATION/AGGREGATION/COMPOSITION은 더 강한 것만 유지
-    const existing = picked.get(key)
-    if (!existing) {
-      picked.set(key, link)
-    } else {
-      const existingType = existing.type?.toUpperCase() || ''
-      if ((RELATION_STRENGTH[type] || 0) > (RELATION_STRENGTH[existingType] || 0)) {
-        picked.set(key, link)
+    const typeLinks = typeMap.get(type) || []
+    typeLinks.push(link)
+    typeMap.set(type, typeLinks)
+  }
+  
+  const result: GraphLink[] = []
+  
+  // 각 노드 쌍별로 처리
+  for (const [key, typeMap] of relationshipGroups) {
+    // 1단계: 관계 타입별로 source_member 수집 (병합 준비)
+    const typeToReasons = new Map<string, string[]>()
+    const typeToLinks = new Map<string, GraphLink[]>()
+    
+    for (const [type, typeLinks] of typeMap) {
+      typeToLinks.set(type, typeLinks)
+      
+      // 같은 타입의 모든 링크에서 source_member 수집
+      const reasons: string[] = []
+      for (const link of typeLinks) {
+        const sourceMembers = link.properties?.source_members
+        if (Array.isArray(sourceMembers)) {
+          sourceMembers.filter(Boolean).forEach(m => {
+            if (!reasons.includes(m)) reasons.push(m)
+          })
+        } else if (sourceMembers) {
+          const member = String(sourceMembers)
+          if (!reasons.includes(member)) reasons.push(member)
+        }
       }
+      typeToReasons.set(type, reasons)
+    }
+    
+    // 2단계: 우선순위에 따라 가장 강한 관계만 선택
+    // EXTENDS와 IMPLEMENTS는 같은 레벨이므로 둘 다 유지
+    const selectedTypes = new Set<string>()
+    let maxStrength = 0
+    
+    // 최대 강도 찾기
+    for (const [type] of typeMap) {
+      const strength = RELATION_STRENGTH[type] || 0
+      if (strength > maxStrength) {
+        maxStrength = strength
+      }
+    }
+    
+    // 최대 강도인 관계 타입들 선택 (EXTENDS/IMPLEMENTS는 둘 다)
+    for (const [type] of typeMap) {
+      const strength = RELATION_STRENGTH[type] || 0
+      if (strength === maxStrength) {
+        // EXTENDS/IMPLEMENTS는 같은 레벨이므로 둘 다 유지
+        if (type === 'EXTENDS' || type === 'IMPLEMENTS') {
+          selectedTypes.add(type)
+        } else {
+          // 다른 타입은 하나만 선택 (같은 강도면 첫 번째)
+          if (!selectedTypes.has(type)) {
+            selectedTypes.add(type)
+          }
+        }
+      }
+    }
+    
+    // 3단계: 선택된 관계 타입들을 결과에 추가 (병합된 source_member 포함)
+    for (const type of selectedTypes) {
+      const typeLinks = typeToLinks.get(type) || []
+      if (typeLinks.length === 0) continue
+      
+      // 첫 번째 링크를 대표로 사용
+      const representativeLink = typeLinks[0]
+      const reasons = typeToReasons.get(type) || []
+      
+      // reasons가 있으면 properties에 저장 (나중에 convertToUmlRelationship에서 사용)
+      if (reasons.length > 0) {
+        if (!representativeLink.properties) {
+          representativeLink.properties = {}
+        }
+        representativeLink.properties._merged_reasons = reasons
+      }
+      
+      result.push(representativeLink)
     }
   }
   
-  // 결과 조합
-  const assocLike: GraphLink[] = []
-  picked.forEach((link, key) => {
-    // passthrough에 포함되지 않은 것만 추가
-    if (!key.includes('::EXTENDS') && !key.includes('::IMPLEMENTS') && !key.includes('::DEPENDENCY')) {
-      if (!passthrough.includes(link)) {
-        assocLike.push(link)
-      }
-    }
-  })
-  
-  return [...passthrough, ...assocLike]
+  return result
 }
 
 // ============================================================================
@@ -630,7 +707,7 @@ export function convertToUmlRelationship(
   
   if (!sourceClassName || !targetClassName) return null
   
-  // label 처리
+  // label 처리 (DEPENDENCY가 아닌 경우에만 표시)
   let label = ''
   const rawLabel = link.properties?.source_members || link.properties?.label
   if (Array.isArray(rawLabel)) {
@@ -639,6 +716,9 @@ export function convertToUmlRelationship(
     label = String(rawLabel)
   }
   
+  // DEPENDENCY의 경우 reasons 추출 (병합된 경우)
+  const reasons = link.properties?._merged_reasons as string[] | undefined
+  
   return {
     id: link.id,
     source: link.source,
@@ -646,8 +726,10 @@ export function convertToUmlRelationship(
     sourceClassName,
     targetClassName,
     type: link.type?.toUpperCase() || 'ASSOCIATION',
-    label: label || undefined,
-    multiplicity: (link.properties?.multiplicity as string) || undefined
+    // DEPENDENCY는 label을 표시하지 않음 (reasons는 클릭 시 노드패널에 표시)
+    label: (link.type?.toUpperCase() === 'DEPENDENCY' ? undefined : label) || undefined,
+    multiplicity: (link.properties?.multiplicity as string) || undefined,
+    reasons: reasons
   }
 }
 
