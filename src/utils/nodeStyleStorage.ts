@@ -5,7 +5,7 @@
  * localStorage를 사용하여 노드 타입별 색상 및 크기 설정을 저장하고 불러옵니다.
  */
 
-const STORAGE_KEY = 'legacy-modernizer-node-styles'
+const STORAGE_KEY = 'robo-analyzer-node-styles'
 
 export interface NodeStyleConfig {
   color?: string

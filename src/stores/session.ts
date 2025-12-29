@@ -2,9 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { v4 as uuidv4 } from 'uuid'
 
-const STORAGE_KEY_SESSION_ID = 'legacy-modernizer-session-id'
-const STORAGE_KEY_API_KEY = 'legacy-modernizer-api-key'
-const STORAGE_KEY_ACTIVE_TAB = 'legacy-modernizer-active-tab'
+const STORAGE_KEY_SESSION_ID = 'robo-analyzer-session-id'
+const STORAGE_KEY_API_KEY = 'robo-analyzer-api-key'
+const STORAGE_KEY_ACTIVE_TAB = 'robo-analyzer-active-tab'
 
 // 로컬스토리지에서 값 로드
 const loadFromStorage = (key: string, defaultValue: string): string => {

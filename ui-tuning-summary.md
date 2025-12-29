@@ -35,7 +35,7 @@
   - 상태별 배경색·텍스트 색상·숫자 배지 스타일 재정의 및 hover, pulse, glow 효과로 시각적 피드백 강화.
 
 - **탭 아이콘**
-  - 상단 로고: `⚡ Legacy Modernizer`로 통일.
+  - 상단 로고: `⚡ Robo Analyzer`로 통일.
   - 메인 탭: 업로드(📁), 그래프(📊), 전환(🔀)로 서로 다른 아이콘 사용.
 
 ### 3. 업로드 탭 (`UploadTab.vue`, `DropZone.vue`)

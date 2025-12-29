@@ -75,7 +75,7 @@ const handleUmlDepthChange = (value: number) => {
   <header class="top-toolbar">
     <button class="logo" @click="sessionStore.goHome()" title="홈으로 이동">
       <span class="logo-icon">⚡</span>
-      <span class="logo-text">Legacy Modernizer</span>
+      <span class="logo-text">Robo Analyzer</span>
     </button>
     
     <div class="conversion-flow">

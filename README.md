@@ -1,4 +1,4 @@
-# Legacy Modernizer Frontend
+# Robo Analyzer Frontend
 
 레거시 코드를 현대적인 프레임워크로 변환하는 도구의 프론트엔드 애플리케이션입니다.
 
@@ -21,7 +21,7 @@
 
 ## 🎯 프로젝트 개요
 
-Legacy Modernizer는 레거시 코드(Java, Python, Oracle, PostgreSQL)를 분석하고, 현대적인 프레임워크(Spring Boot, FastAPI)로 변환하는 도구입니다.
+Robo Analyzer는 레거시 코드(Java, Python, Oracle, PostgreSQL)를 분석하고, 현대적인 프레임워크(Spring Boot, FastAPI)로 변환하는 도구입니다.
 
 ### 핵심 워크플로우
 
@@ -616,9 +616,9 @@ docs: README 업데이트
 ### 로컬 스토리지
 
 다음 설정은 로컬 스토리지에 저장됩니다:
-- `legacy-modernizer-session-id`: 세션 ID
-- `legacy-modernizer-api-key`: OpenAI API 키
-- `legacy-modernizer-active-tab`: 활성 탭
+- `robo-analyzer-session-id`: 세션 ID
+- `robo-analyzer-api-key`: OpenAI API 키
+- `robo-analyzer-active-tab`: 활성 탭
 - `nodeLimit`: 노드 제한 수
 - `umlDepth`: UML 탐색 깊이
 
