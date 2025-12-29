@@ -1,23 +1,53 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
 import { useProjectStore } from '@/stores/project'
-import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
 import DropZone from './DropZone.vue'
 import UploadModal from './UploadModal.vue'
 import UploadTree from './UploadTree.vue'
 import JsonViewer from './JsonViewer.vue'
 import { buildUploadTreeFromUploadedFiles, uniqueFilesByRelPath } from '@/utils/upload'
+import { useResize } from '@/composables/useResize'
 
 const projectStore = useProjectStore()
-const sessionStore = useSessionStore()
 const { 
   uploadedFiles, 
   uploadedDdlFiles,
   isProcessing,
   currentStep,
-  projectName
+  projectName,
+  uploadMessages
 } = storeToRefs(projectStore)
+
+// 콘솔 관련 상태 - 항상 표시
+const showConsole = ref(true)
+
+// 콘솔 리사이즈
+const { value: consoleHeight, isResizing: isConsoleResizing, startResize: startConsoleResize } = useResize({
+  direction: 'vertical',
+  initialValue: 200,
+  min: 100,
+  max: 600,
+  fromEnd: true
+})
+
+// 상태 타입 계산
+const statusType = computed(() => {
+  if (!currentStep.value) return 'idle'
+  const step = currentStep.value.toLowerCase()
+  if (step.includes('에러') || step.includes('실패') || step.includes('error')) return 'error'
+  if (step.includes('완료') || step.includes('complete')) return 'success'
+  if (isProcessing.value) return 'processing'
+  return 'idle'
+})
+
+// 시간 포맷
+function formatTime(timestamp: string): string {
+  if (!timestamp) return ''
+  return new Date(timestamp).toLocaleTimeString('ko-KR', { 
+    hour: '2-digit', minute: '2-digit', second: '2-digit' 
+  })
+}
 
 // 업로드된 파일을 트리 구조로 표시
 const uploadedFileTree = computed(() => 
@@ -153,27 +183,6 @@ const handleUploadConfirm = async (metadata: { projectName: string }) => {
   }
 }
 
-// 파싱 요청
-const handleParse = async () => {
-  try {
-    await projectStore.parseFiles()
-  } catch (error) {
-    alert(`파싱 실패: ${error}`)
-  }
-}
-
-// Understanding 실행
-const handleUnderstanding = async () => {
-  // 그래프 탭으로 자동 전환
-  sessionStore.setActiveTab('graph')
-  
-  try {
-    await projectStore.runUnderstanding()
-  } catch (error) {
-    alert(`Understanding 실패: ${error}`)
-  }
-}
-
 // 트리에서 파일 선택 (탭으로 열기)
 const handleTreeSelect = (relPath: string) => {
   selectedRelPath.value = relPath
@@ -249,7 +258,7 @@ const activateTab = (tabId: string) => {
 <template>
   <div class="upload-tab">
     <div class="upload-main">
-      <!-- 좌측: 드롭존 또는 파일 목록 -->
+      <!-- 좌측: 드롭존 또는 파일/DDL 목록 -->
       <div class="upload-left">
         <template v-if="!hasUploadedFiles">
           <DropZone 
@@ -301,14 +310,14 @@ const activateTab = (tabId: string) => {
             </div>
           </div>
         </template>
+        
+        <!-- 파일 업로드 후: Files/DDL 2영역 분리 -->
         <template v-else>
-          <div class="uploaded-trees">
-            <!-- 일반 파일 트리 -->
-            <div class="tree-section">
-              <div class="section-header">
-                <h3 class="section-title">
-                  파일 ({{ uploadedFiles.length }})
-                </h3>
+          <aside class="sidebar">
+            <!-- 파일 트리 패널 -->
+            <section class="files-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">📁 파일 ({{ uploadedFiles.length }})</h3>
               </div>
               <UploadTree
                 v-if="uploadedFiles.length > 0"
@@ -320,46 +329,27 @@ const activateTab = (tabId: string) => {
                 @select="handleTreeSelect"
               />
               <div v-else class="empty-section">파일 없음</div>
-            </div>
-
-            <!-- DDL 파일 트리 -->
-            <div class="tree-section">
-              <div class="section-header">
-                <h3 class="section-title">
-                  <span class="icon">🗄️</span>
-                  DDL ({{ uploadedDdlFiles.length }})
-                </h3>
+            </section>
+            
+            <!-- DDL 패널 -->
+            <section class="ddl-panel">
+              <div class="panel-header">
+                <h3 class="panel-title">🗄️ DDL ({{ uploadedDdlFiles.length }})</h3>
               </div>
-              <UploadTree
-                v-if="uploadedDdlFiles.length > 0"
-                :root="uploadedDdlTree"
-                :show-header="false"
-                :selected-rel-path="selectedRelPath"
-                :enable-dn-d="false"
-                :show-remove-button="false"
-                @select="handleTreeSelect"
-              />
-              <div v-else class="empty-section">DDL 파일 없음</div>
-            </div>
-          </div>
-          
-          <div class="action-buttons">
-            <button 
-              class="btn btn--primary" 
-              @click="handleParse"
-              :disabled="isProcessing || !hasUploadedFiles"
-            >
-              📄 파싱
-            </button>
-            <button 
-              class="btn btn--primary" 
-              @click="handleUnderstanding"
-              :disabled="isProcessing"
-            >
-              🔗 Understanding
-            </button>
-          </div>
-          
+              <div class="ddl-content">
+                <UploadTree
+                  v-if="uploadedDdlFiles.length > 0"
+                  :root="uploadedDdlTree"
+                  :show-header="false"
+                  :selected-rel-path="selectedRelPath"
+                  :enable-dn-d="false"
+                  :show-remove-button="false"
+                  @select="handleTreeSelect"
+                />
+                <div v-else class="empty-section">DDL 파일 없음</div>
+              </div>
+            </section>
+          </aside>
         </template>
       </div>
       
@@ -399,17 +389,51 @@ const activateTab = (tabId: string) => {
       </div>
     </div>
     
-    <!-- 상태 표시 -->
-    <div class="status-bar" v-if="currentStep">
-      <span 
-        class="status-indicator" 
-        :class="{ 
-          processing: isProcessing,
-          error: currentStep.includes('에러') || currentStep.includes('실패')
-        }"
-      ></span>
-      <span>{{ currentStep }}</span>
-    </div>
+    <!-- 플로팅: 콘솔 토글 버튼 (콘솔이 닫혔을 때만 표시) -->
+    <button 
+      v-if="!showConsole"
+      class="console-toggle-btn"
+      :class="[statusType]"
+      @click="showConsole = !showConsole"
+    >
+      <span class="status-dot"></span>
+      콘솔
+      <span class="count" v-if="uploadMessages.length">{{ uploadMessages.length }}</span>
+    </button>
+    
+    <!-- 플로팅 콘솔 -->
+    <Transition name="slide-up">
+      <div class="floating-console" v-if="showConsole" :style="{ height: `${consoleHeight}px` }">
+        <div class="console-header">
+          <span>콘솔</span>
+          <span class="console-count" v-if="uploadMessages.length">{{ uploadMessages.length }}</span>
+        </div>
+        <!-- 리사이즈 핸들 -->
+        <div 
+          class="console-resize-handle"
+          :class="{ resizing: isConsoleResizing }"
+          @mousedown="startConsoleResize"
+        ></div>
+        <div class="console-content">
+          <div 
+            v-for="(msg, idx) in uploadMessages" 
+            :key="idx"
+            class="log-item"
+            :class="msg.type"
+          >
+            <span class="time">{{ formatTime(msg.timestamp) }}</span>
+            <span class="text">{{ msg.content }}</span>
+          </div>
+          <div class="log-empty" v-if="uploadMessages.length === 0">
+            로그가 없습니다
+          </div>
+        </div>
+        <!-- 콘솔 닫기 버튼 (하단 중앙) -->
+        <button class="console-close-btn-bottom" @click="showConsole = false">
+          <span class="arrow">▼</span>
+        </button>
+      </div>
+    </Transition>
     
     <!-- 업로드 모달 -->
     <UploadModal 
@@ -433,15 +457,16 @@ const activateTab = (tabId: string) => {
   gap: var(--spacing-md);
   overflow: hidden;
   background: #ffffff;
+  position: relative;
 }
 
 .upload-main {
   flex: 1;
   display: grid;
-  grid-template-columns: 350px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: var(--spacing-md);
   overflow: hidden;
-  min-height: 0; // grid가 제대로 shrink 되도록
+  min-height: 0;
 }
 
 .upload-left {
@@ -449,6 +474,7 @@ const activateTab = (tabId: string) => {
   flex-direction: column;
   gap: var(--spacing-md);
   overflow: hidden;
+  min-height: 0;
   
   .drop-zone {
     flex: 1;
@@ -458,6 +484,94 @@ const activateTab = (tabId: string) => {
   .upload-guide {
     flex: 1;
     min-height: 0;
+  }
+}
+
+// ============================================================================
+// 사이드바 레이아웃 (Files/DDL 2영역 분리)
+// ============================================================================
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.files-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  
+  .panel-header {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    background: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border);
+  }
+  
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  
+  :deep(.tree) {
+    flex: 1;
+    min-height: 0;
+    border: none;
+    border-radius: 0;
+    
+    .tree-list {
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+    }
+  }
+}
+
+.ddl-panel {
+  flex: 0 0 180px;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border);
+  
+  .panel-header {
+    flex-shrink: 0;
+    padding: 10px 12px;
+    background: var(--color-bg-secondary);
+    border-bottom: 1px solid var(--color-border);
+  }
+  
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  
+  .ddl-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    
+    :deep(.tree) {
+      border: none;
+      border-radius: 0;
+      min-height: auto;
+      
+      .tree-list {
+        overflow: visible;
+      }
+    }
   }
 }
 
@@ -683,81 +797,6 @@ const activateTab = (tabId: string) => {
   padding: var(--spacing-md);
 }
 
-.uploaded-trees {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-md);
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  
-  // 모던한 스크롤바 스타일
-  scrollbar-width: thin;
-  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-  
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  &::-webkit-scrollbar-track {
-    background: transparent;
-    margin: 4px 0;
-  }
-  
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 4px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-    transition: background 0.2s ease;
-    
-    &:hover {
-      background: rgba(0, 0, 0, 0.3);
-      background-clip: padding-box;
-    }
-    
-    &:active {
-      background: rgba(0, 0, 0, 0.4);
-      background-clip: padding-box;
-    }
-  }
-  
-  // 스크롤 중일 때만 스크롤바 표시 (선택사항 - 필요시 주석 해제)
-  // &:not(:hover)::-webkit-scrollbar-thumb {
-  //   background: transparent;
-  // }
-}
-
-.tree-section {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  
-  .section-header {
-    flex-shrink: 0;
-  }
-  
-  // UploadTree 컴포넌트의 .tree는 스크롤 없이 자연스럽게 흐르도록
-  :deep(.tree) {
-    flex-shrink: 0;
-    
-    .tree-list {
-      overflow: visible;
-    }
-  }
-}
-
-.hidden {
-  display: none;
-}
-
-.action-buttons {
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
 
 .upload-right {
   display: flex;
@@ -939,33 +978,205 @@ const activateTab = (tabId: string) => {
   }
 }
 
-.status-bar {
+// ============================================================================
+// 콘솔 토글 버튼
+// ============================================================================
+
+.console-toggle-btn {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  color: var(--color-text-secondary);
+  gap: 6px;
+  padding: 6px 14px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  transition: all 0.15s;
+  
+  &:hover {
+    background: #f9fafb;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  }
+  
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #9ca3af;
+  }
+  
+  &.processing .status-dot {
+    background: #3b82f6;
+    animation: pulse 1.5s infinite;
+  }
+  
+  &.error .status-dot {
+    background: #ef4444;
+  }
+  
+  &.success .status-dot {
+    background: #22c55e;
+  }
+  
+  .count {
+    padding: 2px 6px;
+    background: #3b82f6;
+    color: white;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+  }
 }
 
-.status-indicator {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--color-success);
-  flex-shrink: 0;
+// ============================================================================
+// 플로팅 콘솔
+// ============================================================================
+
+.floating-console {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #f8fafc;
+  border-top: 2px solid #cbd5e1;
+  z-index: 90;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
   
-  &.processing {
-    background: var(--color-accent-primary);
-    animation: pulse 1.5s ease-in-out infinite;
+  .console-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    
+    .console-count {
+      padding: 2px 6px;
+      background: #3b82f6;
+      color: white;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 600;
+    }
   }
   
-  &.error {
-    background: #ef4444;
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+  .console-close-btn-bottom {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.15s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    
+    .arrow {
+      font-size: 12px;
+    }
+    
+    &:hover {
+      background: #f1f5f9;
+      color: #1e293b;
+      border-color: #94a3b8;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    }
   }
+  
+  .console-resize-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    cursor: row-resize;
+    z-index: 1;
+    background: transparent;
+    transition: background 0.15s;
+    
+    &:hover {
+      background: #cbd5e1;
+    }
+    
+    &.resizing {
+      background: #94a3b8;
+    }
+  }
+  
+  .console-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 12px;
+    margin-top: 4px;
+    font-family: 'Consolas', monospace;
+    font-size: 11px;
+    background: #ffffff;
+    margin-left: 4px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+  }
+  
+  .log-item {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+    color: #374151;
+    
+    &.error {
+      color: #dc2626;
+    }
+    
+    .time {
+      color: #9ca3af;
+      flex-shrink: 0;
+    }
+  }
+  
+  .log-empty {
+    color: #9ca3af;
+    text-align: center;
+    padding: 16px;
+  }
+}
+
+// ============================================================================
+// 트랜지션
+// ============================================================================
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.2s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
 }
 
 @keyframes pulse {

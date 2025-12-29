@@ -1,0 +1,114 @@
+1. 업로드 탭에서도 그래프 탭처럼 그냥 콘솔을 제공 똑같이 제공 -> 
+업로드는 스트림이 아니라서 콘솔에 로그형태로 몇개의파일 업로드 완료 이렇게 표시하고요 
+파싱은 스트림으로 변경되었습니다. 실제 데이터전달은 없고 메시지만 전달되니까 참고하세요 -> antlr_spec.md 참고
+
+
+
+
+2. 파싱및언더스탠딩 버튼을 저기말고 다른곳에 두자, 파싱, 이해, 전환 3단계로 표시하던지 해서 가장 이뻐보이는곳에 배치하고싶은데 파일 ddl 영역에두면 그 영역을 잡아먹어서 싫다 어디에 두는게 좋을거라고 생각하나?
+3. 오로직 왼쪽 영역에는 파일과 ddl 만 보여주고싶으며, 서로 꽉차게 위치해서 세로 스크롤없이 각영역에 내부 스크롤이 존재하도록 하고싶은데 가능한지?
+
+
+목표
+
+가로 스크롤: 파일 트리 영역 하단에 항상 보이게(사이드바 맨 아래까지 내리면 나타나는 방식 금지)
+
+세로 스크롤:
+
+파일 트리 세로 스크롤은 파일 트리 영역 내부에서만
+
+DDL은 항상 화면에 보이도록 아래 고정(필요하면 내부 스크롤)
+
+1) 레이아웃을 “2개 패널”로 분리
+
+사이드바(부모) 안을 아래처럼 나눔:
+
+FilesPanel: 파일 트리(상단, 큰 영역, 스크롤)
+
+DdlPanel: DDL 리스트(하단, 고정 높이, 스크롤 가능)
+
+예시 템플릿(부모 컴포넌트)
+<aside class="sidebar">
+  <section class="files-panel">
+    <!-- 기존 UploadTree.vue -->
+    <UploadTree ... />
+  </section>
+
+  <section class="ddl-panel">
+    <!-- DDL 영역 -->
+    <DdlList ... />
+  </section>
+</aside>
+
+2) 사이드바(부모)는 “스크롤 금지” + 고정 높이
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;      // 또는 100vh, 레이아웃에 맞게
+  min-height: 0;     // ⭐ 내부 스크롤 필수 조건
+  overflow: hidden;  // ⭐ 사이드바 자체 스크롤 제거
+}
+
+3) FilesPanel은 남는 높이를 먹고, 내부에서만 스크롤
+.files-panel {
+  flex: 1 1 auto;   // 남은 공간 전부
+  min-height: 0;    // ⭐ 내부 스크롤 필수
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; // 패널 자체는 숨기고, 실제 스크롤은 아래에서
+}
+
+4) DDL Panel은 “항상 보이게” 고정 높이
+.ddl-panel {
+  flex: 0 0 180px;     // ✅ 원하는 고정 높이
+  min-height: 140px;   // 너무 작아지지 않게
+  overflow: auto;      // DDL이 길면 여기서 스크롤
+  border-top: 1px solid var(--color-border);
+}
+
+5) 네 UploadTree 컴포넌트는 이렇게만 손보면 됨
+
+핵심: .tree는 overflow hidden, .tree-list가 overflow auto
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden; // ⭐ tree 자체는 스크롤 안함
+}
+
+.tree-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;   // ⭐ 세로/가로 스크롤 여기서만
+}
+
+
+✅ 그러면 가로 스크롤은 **FilesPanel 하단(=tree-list 하단)**에 항상 붙어 있고
+사이드바를 끝까지 내릴 필요가 없어져.
+
+6) (옵션) 긴 파일명이 잘리면 “가로 스크롤이 실제로 생기게” 강제
+
+UploadTreeNodeItem 내부 row에 줄바꿈을 막고 폭을 늘려야 가로 overflow가 확실히 생김:
+
+.tree-list :deep(.node-row) {
+  width: max-content;
+  white-space: nowrap;
+}
+
+
+node-row는 실제 아이템 row 클래스명에 맞춰 바꿔줘야 함.
+
+최종 결론
+
+사이드바 전체 스크롤 ❌
+
+Files/DDL 2영역으로 분리 ✅
+
+Files는 내부 스크롤(가로+세로) ✅
+
+DDL은 고정 높이로 항상 노출 + 필요시 내부 스크롤 ✅
+
+원하면, 너 “부모 사이드바 컴포넌트”의 템플릿/CSS 일부만 붙여줘.
+지금 구조에 맞춰 class명 그대로 적용 가능한 형태로 딱 맞춰서 재작성해줄게.

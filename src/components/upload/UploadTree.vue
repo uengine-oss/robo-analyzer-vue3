@@ -98,7 +98,7 @@ const onMove = (payload: { sourceRelPath: string; targetFolderRelPath: string })
   background: var(--color-bg-tertiary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  overflow: hidden;
+  overflow: hidden; // tree 자체는 스크롤 안함
   flex: 1;
   min-height: 0;
 }
@@ -110,6 +110,7 @@ const onMove = (payload: { sourceRelPath: string; targetFolderRelPath: string })
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .root-name {
@@ -134,9 +135,41 @@ const onMove = (payload: { sourceRelPath: string; targetFolderRelPath: string })
   list-style: none;
   margin: 0;
   padding: 6px 0;
-  overflow: auto;
+  overflow: auto; // 세로/가로 스크롤 여기서만
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  
+  // 긴 파일명이 가로 스크롤되도록
+  :deep(.node-row),
+  :deep(.tree-node-item) {
+    width: max-content;
+    min-width: 100%;
+    white-space: nowrap;
+  }
+  
+  &::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: var(--color-bg-tertiary);
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+    
+    &:hover {
+      background: var(--color-text-muted);
+    }
+  }
+  
+  // Firefox
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 </style>

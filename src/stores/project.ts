@@ -144,9 +144,10 @@ export const useProjectStore = defineStore('project', () => {
   const currentStep = ref('')
   
   // ==========================================================================
-  // 상태 - 메시지 (그래프용 / 전환용 분리)
+  // 상태 - 메시지 (업로드용 / 그래프용 / 전환용 분리)
   // ==========================================================================
   
+  const uploadMessages = ref<StreamMessage[]>([])
   const graphMessages = ref<StreamMessage[]>([])
   const convertMessages = ref<StreamMessage[]>([])
   
@@ -250,12 +251,20 @@ export const useProjectStore = defineStore('project', () => {
   // 내부 함수 - 메시지
   // ==========================================================================
   
+  function addUploadMessage(type: MessageType, content: string): void {
+    uploadMessages.value.push({ type, content, timestamp: createTimestamp() })
+  }
+  
   function addGraphMessage(type: MessageType, content: string): void {
     graphMessages.value.push({ type, content, timestamp: createTimestamp() })
   }
   
   function addConvertMessage(type: MessageType, content: string): void {
     convertMessages.value.push({ type, content, timestamp: createTimestamp() })
+  }
+  
+  function clearUploadMessages(): void {
+    uploadMessages.value = []
   }
   
   function clearGraphMessages(): void {
@@ -298,6 +307,7 @@ export const useProjectStore = defineStore('project', () => {
   async function uploadFiles(files: File[], meta: BackendRequestMetadata) {
     isProcessing.value = true
     currentStep.value = '파일 업로드 중...'
+    addUploadMessage('message', `🚀 파일 업로드 시작 (${files.length}개 파일)`)
     
     try {
       const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
@@ -306,9 +316,11 @@ export const useProjectStore = defineStore('project', () => {
       uploadedFiles.value = result.files
       uploadedDdlFiles.value = result.ddlFiles
       
+      addUploadMessage('message', `✅ 업로드 완료: 소스 ${result.files.length}개, DDL ${result.ddlFiles.length}개`)
       currentStep.value = '업로드 완료'
       return result
     } catch (error) {
+      addUploadMessage('error', `❌ 업로드 실패: ${error}`)
       currentStep.value = '업로드 실패'
       throw error
     } finally {
@@ -317,16 +329,32 @@ export const useProjectStore = defineStore('project', () => {
   }
   
   /**
-   * 파싱 요청 (결과 JSON 없음, 완료만 표시)
+   * 파싱 요청 (스트림 방식 - NDJSON)
    */
   async function parseFiles() {
     isProcessing.value = true
     currentStep.value = '파싱 중...'
     
     try {
-      await antlrApi.parse(understandingMeta.value, sessionStore.getHeaders())
-      currentStep.value = '파싱 완료'
+      await antlrApi.parseStream(
+        understandingMeta.value,
+        sessionStore.getHeaders(),
+        (event) => {
+          // 메시지 처리
+          if (event.content) {
+            addUploadMessage(event.type === 'error' ? 'error' : 'message', event.content)
+          }
+          
+          // 완료/에러
+          if (event.type === 'complete') {
+            currentStep.value = '파싱 완료'
+          } else if (event.type === 'error') {
+            currentStep.value = '파싱 에러'
+          }
+        }
+      )
     } catch (error) {
+      addUploadMessage('error', `❌ 파싱 실패: ${error}`)
       currentStep.value = '파싱 실패'
       throw error
     } finally {
@@ -530,6 +558,7 @@ export const useProjectStore = defineStore('project', () => {
     currentStep.value = ''
     
     // 메시지
+    uploadMessages.value = []
     graphMessages.value = []
     convertMessages.value = []
     
@@ -553,6 +582,7 @@ export const useProjectStore = defineStore('project', () => {
     convertedFiles,
     isProcessing,
     currentStep,
+    uploadMessages,
     graphMessages,
     convertMessages,
     frameworkSteps,
@@ -570,8 +600,10 @@ export const useProjectStore = defineStore('project', () => {
     setDdl,
     
     // Actions - Messages
+    addUploadMessage,
     addGraphMessage,
     addConvertMessage,
+    clearUploadMessages,
     clearGraphMessages,
     clearConvertMessages,
     

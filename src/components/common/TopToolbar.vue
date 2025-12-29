@@ -4,7 +4,7 @@
  * 상단 툴바 - 밝은 중성 테마 (msaez.io 스타일)
  */
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
@@ -14,8 +14,13 @@ import type { SourceType, ConvertTarget } from '@/types'
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
 
-const { sessionId } = storeToRefs(sessionStore)
-const { projectName, isProcessing, currentStep, sourceType, convertTarget } = storeToRefs(projectStore)
+const { sessionId, activeTab } = storeToRefs(sessionStore)
+const { projectName, isProcessing, currentStep, sourceType, convertTarget, uploadedFiles, uploadedDdlFiles } = storeToRefs(projectStore)
+
+// 파일이 업로드되었는지 확인
+const hasUploadedFiles = computed(() => 
+  uploadedFiles.value.length > 0 || uploadedDdlFiles.value.length > 0
+)
 
 const showSettings = ref(false)
 const nodeLimit = ref(500)
@@ -68,6 +73,35 @@ const handleNodeLimitChange = (value: number) => {
 const handleUmlDepthChange = (value: number) => {
   localStorage.setItem('umlDepth', String(value))
   window.dispatchEvent(new CustomEvent('umlDepthChange', { detail: value }))
+}
+
+// 파싱 실행
+const handleParse = async () => {
+  try {
+    await projectStore.parseFiles()
+  } catch (error) {
+    console.error('파싱 실패:', error)
+  }
+}
+
+// Understanding 실행
+const handleUnderstanding = async () => {
+  sessionStore.setActiveTab('graph')
+  try {
+    await projectStore.runUnderstanding()
+  } catch (error) {
+    console.error('Understanding 실패:', error)
+  }
+}
+
+// Convert 실행
+const handleConvert = async () => {
+  sessionStore.setActiveTab('convert')
+  try {
+    await projectStore.runConvert()
+  } catch (error) {
+    console.error('Convert 실패:', error)
+  }
 }
 </script>
 
@@ -122,6 +156,46 @@ const handleUmlDepthChange = (value: number) => {
         <span class="spinner"></span>
         <span class="step-text">{{ currentStep }}</span>
       </div>
+    </div>
+    
+    <!-- 워크플로우 스텝: 파싱 → 이해 → 전환 -->
+    <div class="workflow-steps" v-if="hasUploadedFiles">
+      <button 
+        class="step-btn"
+        :class="{ active: activeTab === 'upload' }"
+        :disabled="isProcessing"
+        @click="handleParse"
+        title="코드 구조 분석"
+      >
+        <span class="step-num">1</span>
+        <span class="step-label">파싱</span>
+      </button>
+      
+      <span class="step-arrow">→</span>
+      
+      <button 
+        class="step-btn"
+        :class="{ active: activeTab === 'graph' }"
+        :disabled="isProcessing"
+        @click="handleUnderstanding"
+        title="소스 이해 및 그래프 생성"
+      >
+        <span class="step-num">2</span>
+        <span class="step-label">이해</span>
+      </button>
+      
+      <span class="step-arrow">→</span>
+      
+      <button 
+        class="step-btn"
+        :class="{ active: activeTab === 'convert' }"
+        :disabled="isProcessing"
+        @click="handleConvert"
+        title="타겟으로 코드 변환"
+      >
+        <span class="step-num">3</span>
+        <span class="step-label">전환</span>
+      </button>
     </div>
     
     <div class="actions">
@@ -326,5 +400,92 @@ const handleUmlDepthChange = (value: number) => {
     background: #e5e7eb;
     transform: rotate(45deg);
   }
+}
+
+// ============================================================================
+// 워크플로우 스텝
+// ============================================================================
+
+.workflow-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.step-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  .step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    background: #e5e7eb;
+    color: #64748b;
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 700;
+  }
+  
+  .step-label {
+    font-size: 12px;
+  }
+  
+  &:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #3b82f6;
+    color: #3b82f6;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+    
+    .step-num {
+      background: #3b82f6;
+      color: white;
+    }
+  }
+  
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+  
+  &.active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    border-color: #2563eb;
+    color: white;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    
+    .step-num {
+      background: rgba(255, 255, 255, 0.25);
+      color: white;
+    }
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.step-arrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  padding: 0 2px;
 }
 </style>

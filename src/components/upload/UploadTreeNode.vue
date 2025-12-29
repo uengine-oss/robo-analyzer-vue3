@@ -37,7 +37,7 @@ const iconFor = (node: UploadTreeNode) => {
 }
 
 const indentStyle = computed(() => ({
-  paddingLeft: `${props.level * 14 + 8}px`
+  paddingLeft: `${props.level * 10 + 6}px`
 }))
 
 const onToggle = () => emit('toggle', props.node.relPath)
@@ -121,16 +121,19 @@ const onDrop = (e: DragEvent) => {
 <style scoped lang="scss">
 .node {
   list-style: none;
+  min-width: fit-content;
+  width: max-content;
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 4px;
+  padding: 4px 8px;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
+  min-width: fit-content;
 
   &:hover {
     background: var(--color-bg-hover);
@@ -142,8 +145,8 @@ const onDrop = (e: DragEvent) => {
 }
 
 .twisty {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -153,6 +156,7 @@ const onDrop = (e: DragEvent) => {
   cursor: pointer;
   padding: 0;
   border-radius: var(--radius-sm);
+  flex-shrink: 0;
 
   &:hover {
     background: rgba(255, 255, 255, 0.06);
@@ -166,21 +170,19 @@ const onDrop = (e: DragEvent) => {
 }
 
 .icon {
-  width: 18px;
+  width: 16px;
   display: inline-flex;
   justify-content: center;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 .name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--color-text-primary);
+  min-width: 0;
 }
 
 .remove {

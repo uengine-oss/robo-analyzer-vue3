@@ -85,24 +85,47 @@ async function postFormData<T>(
   console.log('[API] Headers:', headers)
   console.log('[API] Full URL:', window.location.origin + url)
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 
-      'Session-UUID': headers['Session-UUID'],
-      ...(headers['OpenAI-Api-Key'] ? { 'OpenAI-Api-Key': headers['OpenAI-Api-Key'] } : {}),
-      'Accept-Language': headers['Accept-Language'] || 'ko'
-    },
-    body: formData
-  })
-  
-  console.log(`[API] Response status: ${response.status} ${response.statusText}`)
-  console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()))
-  
-  if (!response.ok) {
-    await handleHttpError(response)
+  try {
+    // FormData 전송 시 브라우저가 자동으로 Content-Type을 설정하므로 명시하지 않음
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 
+        'Session-UUID': headers['Session-UUID'],
+        ...(headers['OpenAI-Api-Key'] ? { 'OpenAI-Api-Key': headers['OpenAI-Api-Key'] } : {}),
+        'Accept-Language': headers['Accept-Language'] || 'ko'
+        // Content-Type은 명시하지 않음 (브라우저가 multipart/form-data로 자동 설정)
+      },
+      body: formData
+    })
+    
+    console.log(`[API] Response status: ${response.status} ${response.statusText}`)
+    console.log(`[API] Response headers:`, Object.fromEntries(response.headers.entries()))
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  } catch (error) {
+    // 네트워크 오류 처리
+    console.error('[API] Network error:', error)
+    
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(
+        `서버에 연결할 수 없습니다. ANTLR Server(http://127.0.0.1:8081)가 실행 중인지 확인해주세요.\n` +
+        `원본 오류: ${error.message}`
+      )
+    }
+    
+    if (error instanceof Error) {
+      throw new Error(
+        `파일 업로드 중 오류가 발생했습니다: ${error.message}\n` +
+        `서버 상태를 확인해주세요.`
+      )
+    }
+    
+    throw error
   }
-  
-  return response.json()
 }
 
 // ============================================================================
@@ -250,7 +273,7 @@ export const antlrApi = {
   },
   
   /**
-   * ANTLR 파싱
+   * ANTLR 파싱 (일반 JSON 응답)
    */
   async parse(
     metadata: BackendRequestMetadata,
@@ -260,6 +283,23 @@ export const antlrApi = {
       `${ANTLR_BASE_URL}/parsing`, 
       metadata, 
       headers
+    )
+  },
+  
+  /**
+   * ANTLR 파싱 (스트림 방식)
+   * ANTLR 서버가 스트림을 지원할 때 사용
+   */
+  async parseStream(
+    metadata: BackendRequestMetadata,
+    headers: Headers,
+    onEvent: StreamCallback
+  ): Promise<void> {
+    await streamFetch(
+      `${ANTLR_BASE_URL}/parsing`,
+      metadata,
+      headers,
+      onEvent
     )
   }
 }
