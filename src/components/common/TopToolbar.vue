@@ -1,28 +1,23 @@
 <script setup lang="ts">
 /**
  * TopToolbar.vue
- * 상단 툴바 - 밝은 중성 테마 (msaez.io 스타일)
+ * 상단 헤더 - 로고, 검색바, 사용자 정보
  */
 
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
 import SettingsModal from './SettingsModal.vue'
-import type { SourceType, ConvertTarget } from '@/types'
 
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
 
-const { sessionId, activeTab } = storeToRefs(sessionStore)
-const { projectName, isProcessing, currentStep, sourceType, convertTarget, uploadedFiles, uploadedDdlFiles } = storeToRefs(projectStore)
-
-// 파일이 업로드되었는지 확인
-const hasUploadedFiles = computed(() => 
-  uploadedFiles.value.length > 0 || uploadedDdlFiles.value.length > 0
-)
+const { sessionId } = storeToRefs(sessionStore)
+const { projectName, isProcessing, currentStep } = storeToRefs(projectStore)
 
 const showSettings = ref(false)
+const searchQuery = ref('')
 const nodeLimit = ref(500)
 
 // localStorage에서 값 로드 (안전하게, 마운트 후)
@@ -37,28 +32,6 @@ onMounted(() => {
     console.warn('localStorage 접근 실패:', e)
   }
 })
-
-const sourceOptions: { value: SourceType; label: string; icon: string }[] = [
-  { value: 'oracle', label: 'Oracle', icon: '🔶' },
-  { value: 'postgresql', label: 'PostgreSQL', icon: '🐘' },
-  { value: 'java', label: 'Java', icon: '☕' },
-  { value: 'python', label: 'Python', icon: '🐍' }
-]
-
-const targetOptions: { value: ConvertTarget; label: string; icon: string }[] = [
-  { value: 'java', label: 'Spring Boot', icon: '🍃' },
-  { value: 'python', label: 'FastAPI', icon: '⚡' },
-  { value: 'oracle', label: 'Oracle', icon: '🔶' },
-  { value: 'postgresql', label: 'PostgreSQL', icon: '🐘' }
-]
-
-const updateSourceType = (val: SourceType) => {
-  projectStore.setSourceType(val)
-}
-
-const updateConvertTarget = (val: ConvertTarget) => {
-  projectStore.setConvertTarget(val)
-}
 
 const copySessionId = async () => {
   await navigator.clipboard.writeText(sessionId.value)
@@ -75,141 +48,90 @@ const handleUmlDepthChange = (value: number) => {
   window.dispatchEvent(new CustomEvent('umlDepthChange', { detail: value }))
 }
 
-// 파싱 실행
-const handleParse = async () => {
-  try {
-    await projectStore.parseFiles()
-  } catch (error) {
-    console.error('파싱 실패:', error)
-  }
-}
-
-// Understanding 실행
-const handleUnderstanding = async () => {
-  sessionStore.setActiveTab('graph')
-  try {
-    await projectStore.runUnderstanding()
-  } catch (error) {
-    console.error('Understanding 실패:', error)
-  }
-}
-
-// Convert 실행
-const handleConvert = async () => {
-  sessionStore.setActiveTab('convert')
-  try {
-    await projectStore.runConvert()
-  } catch (error) {
-    console.error('Convert 실패:', error)
-  }
+const handleSearch = () => {
+  // 검색 기능 구현 (추후)
+  console.log('Search:', searchQuery.value)
 }
 </script>
 
 <template>
-  <header class="top-toolbar">
-    <button class="logo" @click="sessionStore.goHome()" title="홈으로 이동">
-      <span class="logo-icon">⚡</span>
-      <span class="logo-text">Robo Analyzer</span>
-    </button>
-    
-    <div class="conversion-flow">
-      <select 
-        class="select" 
-        :value="sourceType"
-        @change="updateSourceType(($event.target as HTMLSelectElement).value as SourceType)"
-        title="소스 타입"
-      >
-        <option 
-          v-for="opt in sourceOptions" 
-          :key="opt.value" 
-          :value="opt.value"
-        >
-          {{ opt.icon }} {{ opt.label }}
-        </option>
-      </select>
-      
-      <span class="flow-arrow">→</span>
-      
-      <select 
-        class="select"
-        :value="convertTarget"
-        @change="updateConvertTarget(($event.target as HTMLSelectElement).value as ConvertTarget)"
-        title="타겟 타입"
-      >
-        <option 
-          v-for="opt in targetOptions" 
-          :key="opt.value" 
-          :value="opt.value"
-        >
-          {{ opt.icon }} {{ opt.label }}
-        </option>
-      </select>
+  <header class="top-header">
+    <!-- 로고 영역 -->
+    <div class="header-left">
+      <button class="logo" @click="sessionStore.goHome()" title="홈으로 이동">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-text">Robo Analyzer</span>
+      </button>
     </div>
     
-    <div class="status-area">
-      <div class="project-badge" v-if="projectName">
-        <span class="project-icon">📁</span>
-        <span class="project-name">{{ projectName }}</span>
-      </div>
-      
-      <div class="progress-indicator" v-if="isProcessing">
-        <span class="spinner"></span>
-        <span class="step-text">{{ currentStep }}</span>
+    <!-- 검색바 영역 -->
+    <div class="header-center">
+      <div class="search-container">
+        <div class="search-type">
+          All
+          <span class="search-chevron">▾</span>
+        </div>
+        <div class="search-divider"></div>
+        <input
+          type="text"
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="Search for Classes, Methods, Tables, Packages..."
+          @keyup.enter="handleSearch"
+        />
+        <div class="search-shortcut">
+          <kbd>⌘</kbd><kbd>K</kbd>
+        </div>
+        <button class="search-btn" @click="handleSearch">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+        </button>
       </div>
     </div>
     
-    <!-- 워크플로우 스텝: 파싱 → 이해 → 전환 -->
-    <div class="workflow-steps" v-if="hasUploadedFiles">
-      <button 
-        class="step-btn"
-        :class="{ active: activeTab === 'upload' }"
-        :disabled="isProcessing"
-        @click="handleParse"
-        title="코드 구조 분석"
-      >
-        <span class="step-num">1</span>
-        <span class="step-label">파싱</span>
+    <!-- 우측 영역: 프로젝트 상태 + 사용자 정보 -->
+    <div class="header-right">
+      <!-- 프로젝트 상태 -->
+      <div class="project-status" v-if="projectName || isProcessing">
+        <div class="project-badge" v-if="projectName">
+          <span class="project-icon">📁</span>
+          <span class="project-name">{{ projectName }}</span>
+        </div>
+        
+        <div class="progress-indicator" v-if="isProcessing">
+          <span class="spinner"></span>
+          <span class="step-text">{{ currentStep }}</span>
+        </div>
+      </div>
+      
+      <!-- 알림 -->
+      <button class="icon-btn" title="알림">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
       </button>
       
-      <span class="step-arrow">→</span>
-      
+      <!-- 설정 -->
       <button 
-        class="step-btn"
-        :class="{ active: activeTab === 'graph' }"
-        :disabled="isProcessing"
-        @click="handleUnderstanding"
-        title="소스 이해 및 그래프 생성"
-      >
-        <span class="step-num">2</span>
-        <span class="step-label">이해</span>
-      </button>
-      
-      <span class="step-arrow">→</span>
-      
-      <button 
-        class="step-btn"
-        :class="{ active: activeTab === 'convert' }"
-        :disabled="isProcessing"
-        @click="handleConvert"
-        title="타겟으로 코드 변환"
-      >
-        <span class="step-num">3</span>
-        <span class="step-label">전환</span>
-      </button>
-    </div>
-    
-    <div class="actions">
-      <code class="session-id" @click="copySessionId" title="클릭하여 Session ID 복사">
-        {{ sessionId.slice(0, 8) }}
-      </code>
-      
-      <button 
-        class="settings-btn" 
+        class="icon-btn" 
         @click="showSettings = true"
         title="설정"
       >
-        ⚙️
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
       </button>
+      
+      <!-- 사용자 프로필 -->
+      <div class="user-profile" @click="copySessionId" title="세션 ID 복사">
+        <div class="avatar">
+          <span>U</span>
+        </div>
+      </div>
     </div>
   </header>
   
@@ -222,27 +144,35 @@ const handleConvert = async () => {
 </template>
 
 <style lang="scss" scoped>
-// 밝은 중성 테마 툴바 (msaez.io 스타일)
-.top-toolbar {
+.top-header {
   display: flex;
   align-items: center;
   gap: 16px;
-  height: 48px;
-  padding: 0 16px;
+  height: 56px;
+  padding: 0 20px;
   background: #ffffff;
   border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+// ============================================================================
+// 로고 영역
+// ============================================================================
+.header-left {
+  display: flex;
+  align-items: center;
+  min-width: 180px;
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 6px 10px;
-  border-radius: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
   transition: all 0.15s;
   
   &:hover {
@@ -250,60 +180,139 @@ const handleConvert = async () => {
   }
   
   .logo-icon {
-    font-size: 18px;
+    font-size: 22px;
   }
   
   .logo-text {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 700;
     color: #1f2937;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.5px;
   }
 }
 
-.conversion-flow {
+// ============================================================================
+// 검색바 영역
+// ============================================================================
+.header-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.search-container {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  width: 100%;
+  height: 40px;
   background: #f9fafb;
-  border-radius: 8px;
   border: 1px solid #e5e7eb;
-}
-
-.select {
-  padding: 4px 8px;
-  font-size: 12px;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  color: #1e293b;
-  cursor: pointer;
+  border-radius: 10px;
+  overflow: hidden;
   transition: all 0.15s;
   
-  &:hover {
-    border-color: #9ca3af;
-  }
-  
-  &:focus {
-    outline: none;
+  &:focus-within {
     border-color: #3b82f6;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    background: #ffffff;
   }
 }
 
-.flow-arrow {
-  font-size: 12px;
-  color: #6b7280;
-  font-weight: bold;
+.search-type {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  white-space: nowrap;
+  
+  &:hover {
+    color: #374151;
+  }
 }
 
-.status-area {
+.search-chevron {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.search-divider {
+  width: 1px;
+  height: 20px;
+  background: #e5e7eb;
+}
+
+.search-input {
   flex: 1;
+  height: 100%;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #1f2937;
+  background: transparent;
+  border: none;
+  outline: none;
+  
+  &::placeholder {
+    color: #9ca3af;
+  }
+}
+
+.search-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 4px;
+    font-size: 11px;
+    font-family: inherit;
+    color: #64748b;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+  }
+}
+
+.search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  
+  &:hover {
+    color: #3b82f6;
+  }
+}
+
+// ============================================================================
+// 우측 영역
+// ============================================================================
+.header-right {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
+}
+
+.project-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .project-badge {
@@ -323,7 +332,7 @@ const handleConvert = async () => {
     font-size: 12px;
     font-weight: 500;
     color: #374151;
-    max-width: 150px;
+    max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -335,13 +344,13 @@ const handleConvert = async () => {
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  background: #f3f4f6;
+  background: #eff6ff;
   border-radius: 6px;
   
   .spinner {
     width: 12px;
     height: 12px;
-    border: 2px solid #d1d5db;
+    border: 2px solid #dbeafe;
     border-top-color: #3b82f6;
     border-radius: 50%;
     animation: spin 1s linear infinite;
@@ -349,8 +358,8 @@ const handleConvert = async () => {
   
   .step-text {
     font-size: 11px;
-    color: #6b7280;
-    max-width: 200px;
+    color: #3b82f6;
+    max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -361,131 +370,46 @@ const handleConvert = async () => {
   to { transform: rotate(360deg); }
 }
 
-.actions {
+.icon-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.session-id {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: #6b7280;
-  padding: 4px 8px;
-  background: #f3f4f6;
-  border-radius: 4px;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #64748b;
   cursor: pointer;
   transition: all 0.15s;
   
   &:hover {
-    background: #e5e7eb;
+    background: #f3f4f6;
     color: #374151;
   }
 }
 
-.settings-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 16px;
+.user-profile {
   cursor: pointer;
-  transition: all 0.15s;
   
-  &:hover {
-    background: #e5e7eb;
-    transform: rotate(45deg);
-  }
-}
-
-// ============================================================================
-// 워크플로우 스텝
-// ============================================================================
-
-.workflow-steps {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-radius: 10px;
-  border: 1px solid #e2e8f0;
-}
-
-.step-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  .step-num {
+  .avatar {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
-    background: #e5e7eb;
-    color: #64748b;
+    width: 36px;
+    height: 36px;
+    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
     border-radius: 50%;
-    font-size: 10px;
-    font-weight: 700;
-  }
-  
-  .step-label {
-    font-size: 12px;
-  }
-  
-  &:hover:not(:disabled) {
-    background: #f8fafc;
-    border-color: #3b82f6;
-    color: #3b82f6;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
-    
-    .step-num {
-      background: #3b82f6;
-      color: white;
-    }
-  }
-  
-  &:active:not(:disabled) {
-    transform: translateY(0);
-  }
-  
-  &.active {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    border-color: #2563eb;
     color: white;
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+    font-size: 14px;
+    font-weight: 600;
+    transition: transform 0.15s;
     
-    .step-num {
-      background: rgba(255, 255, 255, 0.25);
-      color: white;
+    &:hover {
+      transform: scale(1.05);
     }
   }
-  
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.step-arrow {
-  font-size: 12px;
-  font-weight: 600;
-  color: #94a3b8;
-  padding: 0 2px;
 }
 </style>
+
+

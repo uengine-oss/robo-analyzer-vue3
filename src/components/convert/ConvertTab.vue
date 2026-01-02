@@ -9,11 +9,12 @@ import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
 import CodeEditor from './CodeEditor.vue'
 import FrameworkSteps from './FrameworkSteps.vue'
-import type { ConvertedFile } from '@/types'
+import type { ConvertedFile, SourceType, ConvertTarget } from '@/types'
 import { useResize } from '@/composables/useResize'
 
 const projectStore = useProjectStore()
 const { 
+  sourceType,
   convertTarget,
   convertedFiles, 
   isProcessing, 
@@ -21,6 +22,29 @@ const {
   convertMessages,
   frameworkSteps
 } = storeToRefs(projectStore)
+
+// 소스/타겟 옵션
+const sourceOptions: { value: SourceType; label: string; icon: string }[] = [
+  { value: 'oracle', label: 'Oracle', icon: '🔶' },
+  { value: 'postgresql', label: 'PostgreSQL', icon: '🐘' },
+  { value: 'java', label: 'Java', icon: '☕' },
+  { value: 'python', label: 'Python', icon: '🐍' }
+]
+
+const targetOptions: { value: ConvertTarget; label: string; icon: string }[] = [
+  { value: 'java', label: 'Spring Boot', icon: '🍃' },
+  { value: 'python', label: 'FastAPI', icon: '⚡' },
+  { value: 'oracle', label: 'Oracle', icon: '🔶' },
+  { value: 'postgresql', label: 'PostgreSQL', icon: '🐘' }
+]
+
+const updateSourceType = (val: SourceType) => {
+  projectStore.setSourceType(val)
+}
+
+const updateConvertTarget = (val: ConvertTarget) => {
+  projectStore.setConvertTarget(val)
+}
 
 const selectedFile = ref<string | null>(null)
 const showConsole = ref(false)
@@ -169,6 +193,56 @@ watch(convertedFiles, (files) => {
 
 <template>
   <div class="convert-tab">
+    <!-- 상단 전환 설정 바 -->
+    <div class="convert-header">
+      <div class="conversion-flow">
+        <span class="flow-label">소스</span>
+        <select 
+          class="select" 
+          :value="sourceType"
+          @change="updateSourceType(($event.target as HTMLSelectElement).value as SourceType)"
+          title="소스 타입"
+        >
+          <option 
+            v-for="opt in sourceOptions" 
+            :key="opt.value" 
+            :value="opt.value"
+          >
+            {{ opt.icon }} {{ opt.label }}
+          </option>
+        </select>
+        
+        <span class="flow-arrow">→</span>
+        
+        <span class="flow-label">타겟</span>
+        <select 
+          class="select"
+          :value="convertTarget"
+          @change="updateConvertTarget(($event.target as HTMLSelectElement).value as ConvertTarget)"
+          title="타겟 타입"
+        >
+          <option 
+            v-for="opt in targetOptions" 
+            :key="opt.value" 
+            :value="opt.value"
+          >
+            {{ opt.icon }} {{ opt.label }}
+          </option>
+        </select>
+      </div>
+      
+      <div class="header-actions">
+        <button class="convert-btn" @click="handleRunConvert" :disabled="isProcessing">
+          <span class="btn-icon">⚡</span>
+          Convert 실행
+        </button>
+        <button class="download-btn" @click="handleDownload" :disabled="isProcessing || !showCode">
+          <span class="btn-icon">📦</span>
+          ZIP 다운로드
+        </button>
+      </div>
+    </div>
+    
     <!-- 메인 콘텐츠 -->
     <div class="main-area">
       <!-- 파일 탐색기 -->
@@ -331,9 +405,124 @@ watch(convertedFiles, (files) => {
 .convert-tab {
   flex: 1;
   display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   background: #ffffff;
+}
+
+// ============================================================================
+// 상단 전환 설정 바
+// ============================================================================
+
+.convert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.conversion-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flow-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.select {
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 140px;
+  
+  &:hover {
+    border-color: #9ca3af;
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+}
+
+.flow-arrow {
+  font-size: 16px;
+  color: #6b7280;
+  font-weight: bold;
+  padding: 0 4px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.convert-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  
+  &:hover:not(:disabled) {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    transform: translateY(-1px);
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.download-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #ffffff;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+  
+  &:hover:not(:disabled) {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+  }
+  
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.btn-icon {
+  font-size: 14px;
 }
 
 .main-area {

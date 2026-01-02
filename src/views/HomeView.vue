@@ -1,34 +1,22 @@
 <script setup lang="ts">
-import TabContainer from '@/components/common/TabContainer.vue'
 import UploadTab from '@/components/upload/UploadTab.vue'
 import GraphTab from '@/components/graph/GraphTab.vue'
+import Text2SqlTab from '@/components/text2sql/Text2SqlTab.vue'
 import ConvertTab from '@/components/convert/ConvertTab.vue'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
 
 const sessionStore = useSessionStore()
 const { activeTab } = storeToRefs(sessionStore)
-
-const tabs = [
-  { id: 'upload', label: '업로드', icon: '📁' },
-  { id: 'graph', label: '그래프', icon: '📊' },
-  { id: 'convert', label: '전환', icon: '🔀' }
-]
 </script>
 
 <template>
   <div class="home-view">
-    <TabContainer v-model="activeTab" :tabs="tabs">
-      <template #upload>
-        <UploadTab />
-      </template>
-      <template #graph>
-        <GraphTab />
-      </template>
-      <template #convert>
-        <ConvertTab />
-      </template>
-    </TabContainer>
+    <!-- 현재 활성 탭에 따라 컴포넌트 표시 -->
+    <UploadTab v-if="activeTab === 'upload'" />
+    <GraphTab v-else-if="activeTab === 'graph'" />
+    <Text2SqlTab v-else-if="activeTab === 'text2sql'" />
+    <ConvertTab v-else-if="activeTab === 'convert'" />
   </div>
 </template>
 
@@ -38,6 +26,8 @@ const tabs = [
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: #ffffff;
+  border-radius: 12px 0 0 0;
+  box-shadow: -1px 0 0 #e5e7eb;
 }
 </style>
-

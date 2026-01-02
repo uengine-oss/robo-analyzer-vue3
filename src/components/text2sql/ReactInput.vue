@@ -1,11 +1,5 @@
 <template>
   <div class="react-input">
-    <!-- 헤더 (쿼리 입력 영역에만 표시) -->
-    <div v-if="!waitingForUser" class="input-header">
-      <h1>🧠 Text2SQL 에이전트</h1>
-      <p>자연어 질문을 SQL로 변환합니다. 단계별 추론 과정을 실시간으로 확인하세요.</p>
-    </div>
-
     <div v-if="!waitingForUser" class="input-container">
       <textarea 
         v-model="question" 
@@ -172,27 +166,6 @@ function submitUserResponse() {
   flex-direction: column;
   gap: 1rem;
   width: 100%;
-}
-
-.input-header {
-  text-align: center;
-}
-
-.input-header h1 {
-  margin: 0 0 0.5rem 0;
-  font-size: 1.5rem;
-  color: #1a1a1a;
-  font-weight: 700;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.input-header p {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #666;
 }
 
 .input-container,

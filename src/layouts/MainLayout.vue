@@ -1,14 +1,24 @@
 <script setup lang="ts">
 import TopToolbar from '@/components/common/TopToolbar.vue'
+import SideNav from '@/components/common/SideNav.vue'
 import { RouterView } from 'vue-router'
 </script>
 
 <template>
   <div class="main-layout">
+    <!-- 상단 헤더 -->
     <TopToolbar />
-    <main class="main-content">
-      <RouterView />
-    </main>
+    
+    <!-- 메인 영역: 사이드바 + 콘텐츠 -->
+    <div class="main-body">
+      <!-- 왼쪽 사이드바 네비게이션 -->
+      <SideNav />
+      
+      <!-- 메인 콘텐츠 -->
+      <main class="main-content">
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -20,10 +30,16 @@ import { RouterView } from 'vue-router'
   background: var(--color-bg-primary);
 }
 
-.main-content {
+.main-body {
   flex: 1;
   display: flex;
   overflow: hidden;
 }
-</style>
 
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background: #f8fafc;
+}
+</style>
