@@ -4,7 +4,7 @@
  * 
  * 주요 기능:
  * - ANTLR Server API (파일 업로드, 파싱)
- * - Backend Server API (Understanding, Convert, 다운로드)
+ * - ROBO Analyzer API (소스 분석, 데이터 삭제)
  * - NDJSON 스트림 처리
  */
 
@@ -13,7 +13,6 @@ import type {
   FileUploadResponse, 
   ParseResponse,
   StreamEvent,
-  DeleteResponse,
   Text2SqlTableInfo,
   Text2SqlColumnInfo,
   ReactRequest,
@@ -26,7 +25,7 @@ import { getNormalizedUploadPath } from '@/utils/upload'
 // ============================================================================
 
 const ANTLR_BASE_URL = '/antlr'
-const BACKEND_BASE_URL = '/backend'
+const ROBO_BASE_URL = '/robo'
 
 // ============================================================================
 // 타입 정의
@@ -227,26 +226,6 @@ function parseJsonLine(line: string): StreamEvent {
 }
 
 // ============================================================================
-// 파일 다운로드 유틸리티
-// ============================================================================
-
-/**
- * Blob을 파일로 다운로드
- */
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  
-  window.URL.revokeObjectURL(url)
-  document.body.removeChild(link)
-}
-
-// ============================================================================
 // ANTLR Server API
 // ============================================================================
 
@@ -309,20 +288,27 @@ export const antlrApi = {
 }
 
 // ============================================================================
-// Backend Server API
+// ROBO Analyzer API
 // ============================================================================
 
-export const backendApi = {
+export const roboApi = {
   /**
-   * Understanding (그래프 생성)
+   * 소스 파일 분석 → Neo4j 그래프 생성
+   * 
+   * Request Body:
+   *   projectName: 프로젝트명 (필수)
+   *   strategy: "framework" | "dbms" (기본: framework)
+   *   target: "java" | "oracle" | ... (기본: java)
+   * 
+   * Response: NDJSON 스트림
    */
-  async cypherQuery(
+  async analyze(
     metadata: BackendRequestMetadata,
     headers: Headers,
     onEvent: StreamCallback
   ): Promise<void> {
     await streamFetch(
-      `${BACKEND_BASE_URL}/understanding/`,
+      `${ROBO_BASE_URL}/analyze/`,
       metadata,
       headers,
       onEvent
@@ -330,53 +316,21 @@ export const backendApi = {
   },
   
   /**
-   * Convert (코드 변환)
+   * 사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
+   * 
+   * Request Headers:
+   *   Session-UUID: 세션 UUID (필수)
+   * 
+   * Response: JSON
    */
-  async convert(
-    payload: BackendRequestMetadata & { directory?: string[] },
-    headers: Headers,
-    onEvent: StreamCallback
-  ): Promise<void> {
-    await streamFetch(
-      `${BACKEND_BASE_URL}/converting/`,
-      payload,
-      headers,
-      onEvent
-    )
-  },
-  
-  /**
-   * ZIP 다운로드
-   */
-  async downloadJava(
-    projectName: string,
-    headers: Headers
-  ): Promise<void> {
-    const response = await fetch(`${BACKEND_BASE_URL}/download/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({ projectName })
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-    
-    const blob = await response.blob()
-    downloadBlob(blob, `${projectName}.zip`)
-  },
-  
-  /**
-   * 데이터 삭제
-   */
-  async deleteAll(headers: Headers): Promise<DeleteResponse> {
-    const response = await fetch(`${BACKEND_BASE_URL}/deleteAll/`, {
+  async delete(headers: Headers): Promise<{ message: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/delete/`, {
       method: 'DELETE',
       headers
     })
     
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      await handleHttpError(response)
     }
     
     return response.json()

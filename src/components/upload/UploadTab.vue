@@ -19,8 +19,8 @@ const {
   uploadMessages
 } = storeToRefs(projectStore)
 
-// 콘솔 관련 상태 - 항상 표시
-const showConsole = ref(true)
+// 콘솔 관련 상태 - 기본값 닫힘
+const showConsole = ref(false)
 
 // 콘솔 리사이즈
 const { value: consoleHeight, isResizing: isConsoleResizing, startResize: startConsoleResize } = useResize({
@@ -174,7 +174,7 @@ const handleUploadConfirm = async (metadata: { projectName: string }) => {
   
   try {
     const uploadMeta = {
-      ...projectStore.understandingMeta,
+      ...projectStore.analyzeMeta,
       projectName: metadata.projectName
     }
     await projectStore.uploadFiles(pendingFiles.value, uploadMeta)
@@ -290,15 +290,8 @@ const activateTab = (tabId: string) => {
               <div class="guide-item">
                 <span class="guide-step">3</span>
                 <div class="guide-text">
-                  <span class="guide-text-main">Understanding 실행</span>
-                  <span class="guide-text-detail">소스를 이해하여 그래프로 전환</span>
-                </div>
-              </div>
-              <div class="guide-item">
-                <span class="guide-step">4</span>
-                <div class="guide-text">
-                  <span class="guide-text-main">Convert 실행</span>
-                  <span class="guide-text-detail">타겟으로 전환하여 converting</span>
+                  <span class="guide-text-main">분석 실행</span>
+                  <span class="guide-text-detail">소스를 분석하여 그래프로 전환</span>
                 </div>
               </div>
             </div>

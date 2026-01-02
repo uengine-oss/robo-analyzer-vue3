@@ -2,7 +2,6 @@
 import UploadTab from '@/components/upload/UploadTab.vue'
 import GraphTab from '@/components/graph/GraphTab.vue'
 import Text2SqlTab from '@/components/text2sql/Text2SqlTab.vue'
-import ConvertTab from '@/components/convert/ConvertTab.vue'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
 
@@ -16,7 +15,6 @@ const { activeTab } = storeToRefs(sessionStore)
     <UploadTab v-if="activeTab === 'upload'" />
     <GraphTab v-else-if="activeTab === 'graph'" />
     <Text2SqlTab v-else-if="activeTab === 'text2sql'" />
-    <ConvertTab v-else-if="activeTab === 'convert'" />
   </div>
 </template>
 

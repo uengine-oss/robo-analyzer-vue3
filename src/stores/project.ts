@@ -5,8 +5,7 @@
  * 주요 기능:
  * - 프로젝트 메타데이터 관리
  * - 파일 업로드/파싱
- * - Understanding (그래프 생성)
- * - Convert (코드 변환)
+ * - 분석 (그래프 생성)
  * - 다이어그램 생성
  */
 
@@ -16,12 +15,10 @@ import type {
   ProjectMetadata,
   BackendRequestMetadata,
   SourceType,
-  ConvertTarget,
   UploadedFile, 
   GraphData,
   GraphNode,
   GraphLink,
-  ConvertedFile,
   Neo4jNode,
   Neo4jRelationship,
   StreamMessage
@@ -29,7 +26,7 @@ import type {
 
 // UML 다이어그램은 이제 VueFlow로 로컬에서 처리 (서버 API 요청 제거)
 import { useSessionStore } from './session'
-import { antlrApi, backendApi } from '@/services/api'
+import { antlrApi, roboApi } from '@/services/api'
 
 // ============================================================================
 // 타입 정의
@@ -47,13 +44,6 @@ type MessageType = StreamMessage['type']
  */
 function getStrategyFromSource(source: SourceType): Strategy {
   return (source === 'oracle' || source === 'postgresql') ? 'dbms' : 'framework'
-}
-
-/**
- * 타겟에서 백엔드 strategy 추론
- */
-function getStrategyFromTarget(target: ConvertTarget): Strategy {
-  return (target === 'oracle' || target === 'postgresql') ? 'dbms' : 'framework'
 }
 
 /**
@@ -87,16 +77,6 @@ function createTimestamp(): string {
   return new Date().toISOString()
 }
 
-/**
- * 전략별 초기 단계 생성
- */
-function createInitialSteps(strategy: Strategy): { step: number; done: boolean }[] {
-  if (strategy === 'dbms') {
-    return [{ step: 1, done: false }, { step: 2, done: false }]
-  }
-  return Array.from({ length: 5 }, (_, i) => ({ step: i + 1, done: false }))
-}
-
 // [REMOVED] deduplicateClasses - UML은 이제 VueFlow로 로컬 처리
 
 // ============================================================================
@@ -112,7 +92,6 @@ export const useProjectStore = defineStore('project', () => {
   
   const projectName = ref('')
   const sourceType = ref<SourceType>('java')
-  const convertTarget = ref<ConvertTarget>('java')
   const ddl = ref<string[]>([])
   
   // ==========================================================================
@@ -131,12 +110,6 @@ export const useProjectStore = defineStore('project', () => {
   const linkMap = ref<Map<string, GraphLink>>(new Map())
   
   // ==========================================================================
-  // 상태 - 변환 결과
-  // ==========================================================================
-  
-  const convertedFiles = ref<ConvertedFile[]>([])
-  
-  // ==========================================================================
   // 상태 - 프로세스
   // ==========================================================================
   
@@ -144,18 +117,11 @@ export const useProjectStore = defineStore('project', () => {
   const currentStep = ref('')
   
   // ==========================================================================
-  // 상태 - 메시지 (업로드용 / 그래프용 / 전환용 분리)
+  // 상태 - 메시지 (업로드용 / 그래프용)
   // ==========================================================================
   
   const uploadMessages = ref<StreamMessage[]>([])
   const graphMessages = ref<StreamMessage[]>([])
-  const convertMessages = ref<StreamMessage[]>([])
-  
-  // ==========================================================================
-  // 상태 - 프레임워크 단계
-  // ==========================================================================
-  
-  const frameworkSteps = ref(createInitialSteps('framework'))
   
   // ==========================================================================
   // Computed - 그래프 데이터
@@ -172,20 +138,13 @@ export const useProjectStore = defineStore('project', () => {
   
   const metadata = computed<ProjectMetadata>(() => ({
     sourceType: sourceType.value,
-    convertTarget: convertTarget.value,
     projectName: projectName.value,
     ddl: ddl.value
   }))
   
-  const understandingMeta = computed<BackendRequestMetadata>(() => ({
+  const analyzeMeta = computed<BackendRequestMetadata>(() => ({
     strategy: getStrategyFromSource(sourceType.value),
     target: sourceType.value,
-    projectName: projectName.value
-  }))
-  
-  const convertingMeta = computed<BackendRequestMetadata>(() => ({
-    strategy: getStrategyFromTarget(convertTarget.value),
-    target: convertTarget.value,
     projectName: projectName.value
   }))
   
@@ -259,20 +218,12 @@ export const useProjectStore = defineStore('project', () => {
     graphMessages.value.push({ type, content, timestamp: createTimestamp() })
   }
   
-  function addConvertMessage(type: MessageType, content: string): void {
-    convertMessages.value.push({ type, content, timestamp: createTimestamp() })
-  }
-  
   function clearUploadMessages(): void {
     uploadMessages.value = []
   }
   
   function clearGraphMessages(): void {
     graphMessages.value = []
-  }
-  
-  function clearConvertMessages(): void {
-    convertMessages.value = []
   }
   
   
@@ -286,11 +237,6 @@ export const useProjectStore = defineStore('project', () => {
   
   function setSourceType(type: SourceType): void {
     sourceType.value = type
-  }
-  
-  function setConvertTarget(target: ConvertTarget): void {
-    convertTarget.value = target
-    frameworkSteps.value = createInitialSteps(getStrategyFromTarget(target))
   }
   
   function setDdl(d: string[]): void {
@@ -337,7 +283,7 @@ export const useProjectStore = defineStore('project', () => {
     
     try {
       await antlrApi.parseStream(
-        understandingMeta.value,
+        analyzeMeta.value,
         sessionStore.getHeaders(),
         (event) => {
           // 메시지 처리
@@ -363,22 +309,22 @@ export const useProjectStore = defineStore('project', () => {
   }
   
   // ==========================================================================
-  // Actions - Understanding (그래프 생성)
+  // Actions - 분석 (그래프 생성)
   // ==========================================================================
   
   /**
-   * Understanding 실행
+   * 분석 실행
    */
-  async function runUnderstanding(): Promise<void> {
+  async function runAnalysis(): Promise<void> {
     isProcessing.value = true
-    currentStep.value = 'Understanding 진행 중...'
+    currentStep.value = '분석 진행 중...'
     
     clearGraphMessages()
     clearGraphData()
     
     try {
-      await backendApi.cypherQuery(
-        understandingMeta.value,
+      await roboApi.analyze(
+        analyzeMeta.value,
         sessionStore.getHeaders(),
         (event) => {
           // 메시지 처리 (자연어 상태 메시지)
@@ -394,115 +340,19 @@ export const useProjectStore = defineStore('project', () => {
           
           // 완료/에러
           if (event.type === 'complete') {
-            currentStep.value = 'Understanding 완료'
+            currentStep.value = '분석 완료'
           } else if (event.type === 'error') {
             // 상단 상태바에는 상세 에러(JSON 등)를 노출하지 않고,
             // 간단한 메시지만 표시하고 상세 내용은 로그 패널에서만 보여준다.
-            currentStep.value = 'Understanding 에러 (상세 내용은 로그 패널 참고)'
+            currentStep.value = '분석 에러 (상세 내용은 로그 패널 참고)'
           }
         }
       )
     } catch (error) {
-      currentStep.value = 'Understanding 실패'
+      currentStep.value = '분석 실패'
       throw error
     } finally {
       isProcessing.value = false
-    }
-  }
-  
-  // ==========================================================================
-  // Actions - Convert (코드 변환)
-  // ==========================================================================
-  
-  /**
-   * Convert 실행
-   */
-  async function runConvert(classNames?: string[]): Promise<void> {
-    isProcessing.value = true
-    currentStep.value = 'Convert 진행 중...'
-    clearConvertMessages()
-    
-    // 단계 초기화
-      frameworkSteps.value = frameworkSteps.value.map(s => ({ ...s, done: false }))
-    
-    try {
-      const payload = classNames 
-        ? { ...convertingMeta.value, directory: classNames }
-        : convertingMeta.value
-        
-      await backendApi.convert(payload, sessionStore.getHeaders(), (event) => {
-        handleConvertEvent(event, classNames)
-      })
-    } catch (error) {
-      currentStep.value = 'Convert 실패'
-      throw error
-    } finally {
-      isProcessing.value = false
-    }
-  }
-  
-  /**
-   * Convert 이벤트 핸들러
-   */
-  function handleConvertEvent(event: any, classNames?: string[]): void {
-          switch (event.type) {
-            case 'message':
-              addConvertMessage('message', event.content || '')
-              break
-        
-            case 'data':
-        if (event.code && event.file_name) {
-          updateConvertedFile(event)
-        }
-        break
-        
-      case 'status':
-        if (event.step !== undefined) {
-          updateFrameworkStep(event.step, event.done || false)
-        }
-        break
-        
-      case 'complete':
-        currentStep.value = 'Convert 완료'
-        break
-        
-      case 'error':
-        // 상단 상태바에는 상세 에러(JSON 등)를 노출하지 않고,
-        // 간단한 메시지만 표시하고 상세 내용은 로그 패널에서만 보여준다.
-        currentStep.value = 'Convert 에러 (상세 내용은 로그 패널 참고)'
-        break
-    }
-  }
-  
-  /**
-   * 변환된 파일 업데이트
-   */
-  function updateConvertedFile(event: any): void {
-                const file: ConvertedFile = {
-                  fileName: event.file_name,
-                  fileType: event.file_type || 'unknown',
-                  code: event.code,
-                  directory: event.directory
-                }
-    
-    const existingIndex = convertedFiles.value.findIndex(
-      f => f.fileName === event.file_name
-    )
-                
-                if (existingIndex >= 0) {
-                  convertedFiles.value[existingIndex] = file
-                } else {
-                  convertedFiles.value.push(file)
-                }
-              }
-  
-  /**
-   * 프레임워크 단계 업데이트
-   */
-  function updateFrameworkStep(step: number, done: boolean): void {
-    const stepIndex = frameworkSteps.value.findIndex(s => s.step === step)
-                if (stepIndex >= 0) {
-      frameworkSteps.value[stepIndex].done = done
     }
   }
   
@@ -511,23 +361,11 @@ export const useProjectStore = defineStore('project', () => {
   // ==========================================================================
   
   /**
-   * ZIP 다운로드
-   */
-  async function downloadZip(): Promise<void> {
-    try {
-      await backendApi.downloadJava(projectName.value, sessionStore.getHeaders())
-    } catch (error) {
-      console.error('다운로드 실패:', error)
-      throw error
-    }
-  }
-  
-  /**
    * 모든 데이터 삭제
    */
   async function deleteAllData(): Promise<void> {
     try {
-      await backendApi.deleteAll(sessionStore.getHeaders())
+      await roboApi.delete(sessionStore.getHeaders())
       reset()
     } catch (error) {
       console.error('삭제 실패:', error)
@@ -550,9 +388,6 @@ export const useProjectStore = defineStore('project', () => {
     // 그래프
     clearGraphData()
     
-    // 변환 결과
-    convertedFiles.value = []
-    
     // 프로세스
     isProcessing.value = false
     currentStep.value = ''
@@ -560,10 +395,6 @@ export const useProjectStore = defineStore('project', () => {
     // 메시지
     uploadMessages.value = []
     graphMessages.value = []
-    convertMessages.value = []
-    
-    // 단계
-    frameworkSteps.value = frameworkSteps.value.map(s => ({ ...s, done: false }))
   }
   
   // ==========================================================================
@@ -574,49 +405,39 @@ export const useProjectStore = defineStore('project', () => {
     // State
     projectName,
     sourceType,
-    convertTarget,
     ddl,
     uploadedFiles,
     uploadedDdlFiles,
     graphData,
-    convertedFiles,
     isProcessing,
     currentStep,
     uploadMessages,
     graphMessages,
-    convertMessages,
-    frameworkSteps,
     
     // Computed
     metadata,
-    understandingMeta,
-    convertingMeta,
+    analyzeMeta,
     isValidConfig,
     
     // Actions - Setters
     setProjectName,
     setSourceType,
-    setConvertTarget,
     setDdl,
     
     // Actions - Messages
     addUploadMessage,
     addGraphMessage,
-    addConvertMessage,
     clearUploadMessages,
     clearGraphMessages,
-    clearConvertMessages,
     
     // Actions - File
     uploadFiles,
     parseFiles,
     
-    // Actions - Understanding/Convert
-    runUnderstanding,
-    runConvert,
+    // Actions - 분석
+    runAnalysis,
     
     // Actions - Misc
-    downloadZip,
     deleteAllData,
     deleteNodeAndRelationships,
     reset

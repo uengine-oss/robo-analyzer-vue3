@@ -280,7 +280,7 @@ watch(hasGraph, (has, prev) => {
           <div class="empty-state">
             <div class="empty-icon">📈</div>
             <h3>그래프 데이터가 없습니다</h3>
-            <p>업로드 탭에서 파일을 업로드하고 Understanding을 실행하세요</p>
+            <p>업로드 탭에서 파일을 업로드하고 분석을 실행하세요</p>
           </div>
         </template>
       </div>

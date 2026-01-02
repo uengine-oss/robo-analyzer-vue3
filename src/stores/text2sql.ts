@@ -270,8 +270,10 @@ export const useText2SqlSchemaStore = defineStore('text2sql-schema', () => {
     try {
       tables.value = await text2sqlApi.getTables(search, schema)
     } catch (err: unknown) {
+      // 에러 상태만 저장하고 다시 throw하지 않음 (조용히 처리)
       error.value = err instanceof Error ? err.message : 'Failed to load tables'
-      throw err
+      // 빈 배열로 초기화하여 UI가 깨지지 않도록 함
+      tables.value = []
     } finally {
       loading.value = false
     }

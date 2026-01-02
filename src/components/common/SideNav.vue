@@ -18,8 +18,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'upload', label: '소스', icon: '📁' },
   { id: 'graph', label: '메타데이터', icon: '📊' },
-  { id: 'text2sql', label: 'Text2SQL', icon: '🧠' },
-  { id: 'convert', label: '전환', icon: '🔀' }
+  { id: 'text2sql', label: 'Text2SQL', icon: '🧠' }
 ]
 
 const setActiveTab = (tabId: string) => {

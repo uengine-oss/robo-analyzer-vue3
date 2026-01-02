@@ -10,9 +10,6 @@
 /** 소스 코드 타입 */
 export type SourceType = 'oracle' | 'postgresql' | 'java' | 'python'
 
-/** 변환 대상 타입 */
-export type ConvertTarget = 'oracle' | 'postgresql' | 'java' | 'python'
-
 /** 백엔드 전략 타입 */
 export type Strategy = 'dbms' | 'framework'
 
@@ -23,7 +20,6 @@ export type Strategy = 'dbms' | 'framework'
 /** 프로젝트 메타데이터 (프론트엔드용) */
 export interface ProjectMetadata {
   sourceType: SourceType
-  convertTarget: ConvertTarget
   projectName: string
   /** ddl 폴더 하위 상대경로 목록 (예: 'tables/a.sql') */
   ddl: string[]
@@ -48,15 +44,6 @@ export interface UploadedFile {
 }
 
 // 파싱 결과는 더 이상 JSON으로 받지 않음 (파싱 완료만 표시)
-
-/** 변환된 파일 */
-export interface ConvertedFile {
-  fileName: string
-  fileType: string
-  code: string
-  directory?: string
-  summary?: string
-}
 
 // ============================================================================
 // Neo4j 응답 (백엔드 원본 형식)
@@ -205,11 +192,6 @@ export interface FileUploadResponse {
 export interface ParseResponse {
   projectName: string
   status?: 'complete'
-}
-
-/** 삭제 응답 */
-export interface DeleteResponse {
-  message: string
 }
 
 // ============================================================================
