@@ -457,6 +457,10 @@ const showText2SqlTab = computed(() =>
 2. ReAct 에이전트가 단계별로 SQL 구성
 3. 각 단계마다 도구 호출 (메타데이터 조회, SQL 검증 등)
 4. 필요시 사용자에게 추가 정보 요청 (휴먼인더루프)
+   - `ask_user` 툴 호출 시 상태가 `needs_user_input`으로 변경
+   - **자동으로 "쿼리 입력" 탭으로 전환**되어 사용자 입력 필드 표시
+   - 사용자가 답변 입력 후 "답변 보내기" 버튼 클릭
+   - `user_response` 파라미터와 함께 재요청하여 처리 계속
 5. 최종 SQL 생성 및 실행
 6. 실행 결과 표시
 
@@ -573,8 +577,20 @@ ReAct 에이전트 실행 상태를 관리합니다.
 - `consumeStream()`: NDJSON 스트림을 이벤트로 파싱
 - `step` 이벤트: 각 추론 단계 업데이트
 - `needs_user_input` 이벤트: 사용자 입력 대기 상태로 전환
+  - `status`를 `needs_user_input`으로 변경
+  - `questionToUser`에 에이전트 질문 저장
+  - `sessionState`에 세션 상태 저장 (재개 시 사용)
+  - `Text2SqlTab.vue`에서 자동으로 "쿼리 입력" 탭으로 전환
 - `completed` 이벤트: 완료 처리
 - `error` 이벤트: 에러 처리
+
+**휴먼인더루프 플로우**:
+1. 에이전트가 `ask_user` 툴 호출
+2. `needs_user_input` 이벤트 수신 → 상태 변경 및 탭 자동 전환
+3. 사용자가 `ReactInput`에서 답변 입력
+4. `continueWithResponse(userResponse)` 호출
+5. `sessionState`와 `user_response` 파라미터로 재요청
+6. 처리 계속 진행
 
 #### Schema Store (`useText2SqlSchemaStore`)
 
@@ -774,8 +790,14 @@ UML 다이어그램 - VueFlow + ELK 레이아웃
 메인 Text2SQL 탭 - Text2SQL/스키마 서브 탭 전환
 
 **서브 탭**:
-- **Text2SQL**: ReAct 질문 입력, 실시간 요약, 상세 스텝
-- **스키마**: 테이블 목록, ERD, 릴레이션 관리
+- **쿼리 입력**: ReAct 질문 입력 및 사용자 응답 입력
+- **실시간 요약**: 실행 상태, SQL 스냅샷, 실행 결과
+- **상세 스텝**: ReAct 단계별 타임라인
+
+**자동 탭 전환 로직**:
+- ReAct 실행 시작 시 → "실시간 요약" 탭으로 자동 전환
+- 사용자 입력 필요 시 (`needs_user_input`) → "쿼리 입력" 탭으로 자동 전환
+- 사용자가 답변 입력 후 → 처리 계속 진행
 
 #### `ReactInput.vue`
 ReAct 질문 입력 컴포넌트
@@ -784,6 +806,15 @@ ReAct 질문 입력 컴포넌트
 - 자연어 질문 입력
 - 고급 설정 (최대 도구 호출, SQL 실행 시간)
 - 휴먼인더루프 질문 표시 및 응답 입력
+
+**Props**:
+- `waitingForUser`: 사용자 입력 대기 중 여부
+- `questionToUser`: 에이전트가 사용자에게 질문한 내용
+- `loading`: 로딩 상태
+
+**동작**:
+- `waitingForUser`가 `true`일 때 에이전트 질문과 답변 입력 필드 표시
+- 사용자가 답변 입력 후 "답변 보내기" 버튼 클릭 시 `respond` 이벤트 emit
 
 #### `ReactStepTimeline.vue`
 ReAct 단계별 타임라인

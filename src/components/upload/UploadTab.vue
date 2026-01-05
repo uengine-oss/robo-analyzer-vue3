@@ -133,32 +133,8 @@ const handleFilesUpdated = (updatedFiles: File[]) => {
   pendingFiles.value = updatedFiles
 }
 
-// 파일 확장자로 소스 타입 자동 감지
-const detectSourceType = (files: File[]): 'oracle' | 'postgresql' | 'java' | 'python' | null => {
-  const extensions = files.map(f => {
-    const name = f.name.toLowerCase()
-    if (name.endsWith('.sql')) return 'sql'
-    if (name.endsWith('.java')) return 'java'
-    if (name.endsWith('.py')) return 'python'
-    return 'other'
-  })
-  
-  const hasJava = extensions.includes('java')
-  const hasPython = extensions.includes('python')
-  const hasSql = extensions.includes('sql')
-  
-  // Java 파일이 있으면 Java
-  if (hasJava) return 'java'
-  // Python 파일이 있으면 Python
-  if (hasPython) return 'python'
-  // SQL 파일만 있으면 DBMS (기본 Oracle)
-  if (hasSql && !hasJava && !hasPython) return 'oracle'
-  
-  return null
-}
-
 // 업로드 확인
-const handleUploadConfirm = async (metadata: { projectName: string }) => {
+const handleUploadConfirm = async (metadata: { projectName: string; sourceType: import('@/types').SourceType }) => {
   showModal.value = false
   
   if (pendingFiles.value.length === 0) {
@@ -166,11 +142,8 @@ const handleUploadConfirm = async (metadata: { projectName: string }) => {
     return
   }
   
-  // 소스 타입 자동 감지 및 설정
-  const detectedSource = detectSourceType(pendingFiles.value)
-  if (detectedSource) {
-    projectStore.setSourceType(detectedSource)
-  }
+  // 모달에서 선택한 소스 타입을 store에 설정
+  projectStore.setSourceType(metadata.sourceType)
   
   try {
     const uploadMeta = {
@@ -277,21 +250,21 @@ const activateTab = (tabId: string) => {
                 <span class="guide-step">1</span>
                 <div class="guide-text">
                   <span class="guide-text-main">프로젝트 폴더 업로드</span>
-                  <span class="guide-text-detail">드래그 앤 드롭 또는 클릭하여 업로드</span>
+                  <span class="guide-text-detail">업로드 시 자동 분석 절차가 진행됩니다</span>
                 </div>
               </div>
               <div class="guide-item">
                 <span class="guide-step">2</span>
                 <div class="guide-text">
-                  <span class="guide-text-main">파싱 실행</span>
-                  <span class="guide-text-detail">코드 구조 분석 및 AST 생성</span>
+                  <span class="guide-text-main">그래프 시각화</span>
+                  <span class="guide-text-detail">그래프 탭에서 여러가지 시각화된 자료를 확인할 수 있습니다</span>
                 </div>
               </div>
               <div class="guide-item">
                 <span class="guide-step">3</span>
                 <div class="guide-text">
-                  <span class="guide-text-main">분석 실행</span>
-                  <span class="guide-text-detail">소스를 분석하여 그래프로 전환</span>
+                  <span class="guide-text-main">Text2SQL 활용</span>
+                  <span class="guide-text-detail">Text2SQL 탭에서 검색을 통해 자연어로 SQL 쿼리를 생성할 수 있습니다</span>
                 </div>
               </div>
             </div>
@@ -496,8 +469,9 @@ const activateTab = (tabId: string) => {
 }
 
 .files-panel {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 1 50%;
+  min-height: 200px;
+  max-height: 75%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -531,8 +505,9 @@ const activateTab = (tabId: string) => {
 }
 
 .ddl-panel {
-  flex: 0 0 180px;
-  min-height: 140px;
+  flex: 1 1 50%;
+  min-height: 200px;
+  max-height: 75%;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--color-border);
@@ -562,7 +537,7 @@ const activateTab = (tabId: string) => {
       min-height: auto;
       
       .tree-list {
-        overflow: visible;
+        overflow: auto;
       }
     }
   }
@@ -664,8 +639,8 @@ const activateTab = (tabId: string) => {
   }
   
   .guide-tips {
-    padding-top: 12px;
-    margin-top: 12px;
+    padding-top: 6px;
+    margin-top: 6px;
     border-top: 1px solid #e5e7eb;
     
     .tip-item {

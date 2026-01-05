@@ -112,6 +112,12 @@ watch(() => reactStore.hasSteps, (hasSteps) => {
   }
 })
 
+watch(() => reactStore.isWaitingUser, (isWaiting) => {
+  if (isWaiting) {
+    reactTab.value = 'input'
+  }
+})
+
 async function handleStart(
   question: string,
   options: { maxToolCalls: number; maxSqlSeconds: number }

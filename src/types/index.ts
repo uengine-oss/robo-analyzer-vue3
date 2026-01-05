@@ -28,9 +28,8 @@ export interface ProjectMetadata {
 /** 백엔드 API 요청용 메타데이터 */
 export interface BackendRequestMetadata {
   strategy: Strategy
-  target: string
+  target: SourceType
   projectName: string
-  // ddl은 multipart filename 경로(ddl/...)로 서버가 자동 구분하므로 메타데이터에서 제거
 }
 
 // ============================================================================

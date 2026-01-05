@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import UploadTree from './UploadTree.vue'
 import AddMenu from './AddMenu.vue'
+import type { SourceType } from '@/types'
 import { buildUploadTree, collectAllFolderPaths, forceWebkitRelativePath, getNormalizedUploadPathWithoutProject, getParentFolderRelPath, inferProjectNameFromPicked, mapPickedFilesToTarget, moveRelPathToFolder, normalizeSlashes, resolveSelectedTargetFolder, splitPath, type UploadTreeNode, uniqueFilesByRelPath } from '@/utils/upload'
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  confirm: [metadata: { projectName: string }]
+  confirm: [metadata: { projectName: string; sourceType: SourceType }]
   cancel: []
   'add-files': [files: File[], reanalyze: boolean]
   'files-updated': [files: File[]]
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 
 const projectName = ref(props.initialMetadata.projectName || '')
 const files = ref<File[]>([...(props.initialFiles || [])])
+const sourceType = ref<SourceType>('java')
 
 const folderInput = ref<HTMLInputElement>()
 const fileInput = ref<HTMLInputElement>()
@@ -40,6 +42,52 @@ const hasFiles = computed(() => files.value.length > 0)
 
 // 전체 파일 수
 const totalFileCount = computed(() => files.value.length)
+
+// 소스 타입 옵션
+const sourceTypeOptions: { value: SourceType; label: string }[] = [
+  { value: 'java', label: 'Java' },
+  { value: 'python', label: 'Python' },
+  { value: 'postgresql', label: 'PostgreSQL' },
+  { value: 'oracle', label: 'Oracle' }
+]
+
+// 파일 확장자로 소스 타입 자동 감지
+const detectSourceType = (files: File[]): SourceType | null => {
+  if (files.length === 0) return null
+  
+  const extensions = files.map(f => {
+    const name = f.name.toLowerCase()
+    if (name.endsWith('.sql')) return 'sql'
+    if (name.endsWith('.java')) return 'java'
+    if (name.endsWith('.py')) return 'python'
+    return 'other'
+  })
+  
+  const hasJava = extensions.includes('java')
+  const hasPython = extensions.includes('python')
+  const hasSql = extensions.includes('sql')
+  
+  // Java 파일이 있으면 Java
+  if (hasJava) return 'java'
+  // Python 파일이 있으면 Python
+  if (hasPython) return 'python'
+  // SQL 파일만 있으면 null (사용자가 PostgreSQL/Oracle 선택해야 함)
+  if (hasSql && !hasJava && !hasPython) return null
+  
+  return null
+}
+
+// 파일이 변경되면 자동으로 소스 타입 감지 (기본값 설정만)
+watch(files, (newFiles) => {
+  if (newFiles.length === 0) return
+  
+  const detected = detectSourceType(newFiles)
+  // 자동 감지가 가능한 경우(Java, Python)에만 자동 설정
+  // SQL인 경우는 사용자가 직접 선택해야 함
+  if (detected === 'java' || detected === 'python') {
+    sourceType.value = detected
+  }
+}, { deep: true })
 
 // 유효성 검사
 const isValid = computed(() => 
@@ -161,7 +209,8 @@ const handleConfirm = () => {
     return
   }
   emit('confirm', {
-    projectName: projectName.value.trim()
+    projectName: projectName.value.trim(),
+    sourceType: sourceType.value
   })
 }
 
@@ -315,7 +364,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
       </div>
       
       <div class="modal-body">
-        <!-- 상단: 프로젝트명만 -->
+        <!-- 상단: 프로젝트명과 소스 타입 -->
         <div class="top-row">
           <div class="project-name-group">
             <label class="form-label">프로젝트명 <span class="required">*</span></label>
@@ -325,6 +374,17 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
               :class="{ 'input--error': !projectName.trim() }"
               placeholder="프로젝트명 입력"
             />
+          </div>
+          <div class="source-type-group">
+            <label class="form-label form-label--compact">소스 타입 <span class="required">*</span></label>
+            <select 
+              v-model="sourceType" 
+              class="select select--compact"
+            >
+              <option v-for="option in sourceTypeOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
           </div>
         </div>
         
@@ -471,7 +531,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 .top-row {
   display: flex;
   align-items: flex-end;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
 }
 
 .project-name-group {
@@ -484,6 +544,46 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
     font-size: 14px;
     padding: 10px 12px;
   }
+}
+
+.source-type-group {
+  flex: 0 0 auto;
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  
+  .select {
+    font-size: 13px;
+    padding: 8px 10px;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    
+    &:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    &:hover {
+      border-color: var(--color-border-hover);
+    }
+  }
+}
+
+.form-label--compact {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.select--compact {
+  font-size: 13px;
+  padding: 8px 10px;
 }
 
 .tree-split {

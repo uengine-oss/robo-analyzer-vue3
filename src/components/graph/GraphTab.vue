@@ -22,7 +22,7 @@ const {
   isProcessing, 
   currentStep, 
   sourceType,
-  graphMessages
+  consoleMessages
 } = storeToRefs(projectStore)
 
 const MAX_SEARCH_RESULTS = 8
@@ -118,7 +118,7 @@ const displayedRelationshipsCount = computed(() =>
 )
 
 // 로그가 있을 때 자동으로 콘솔 표시
-watch(graphMessages, (messages) => {
+watch(consoleMessages, (messages) => {
   if (messages.length > 0 && !showConsole.value) {
     showConsole.value = true
   }
@@ -255,6 +255,7 @@ watch(hasGraph, (has, prev) => {
   if (has && !prev) showNodePanel.value = true
 })
 
+
 </script>
 
 <template>
@@ -371,6 +372,7 @@ watch(hasGraph, (has, prev) => {
         </span>
         <button class="clear-btn" @click="clearSelectedClasses">지우기</button>
       </div>
+      
     </div>
     
     <!-- 플로팅: 노드 패널 -->
@@ -435,14 +437,14 @@ watch(hasGraph, (has, prev) => {
     >
       <span class="status-dot"></span>
       콘솔
-      <span class="count" v-if="graphMessages.length">{{ graphMessages.length }}</span>
+      <span class="count" v-if="consoleMessages.length">{{ consoleMessages.length }}</span>
     </button>
     
     <Transition name="slide-up">
       <div class="floating-console" v-if="showConsole" :style="{ height: `${consoleHeight}px` }">
         <div class="console-header">
           <span>콘솔</span>
-          <span class="console-count" v-if="graphMessages.length">{{ graphMessages.length }}</span>
+          <span class="console-count" v-if="consoleMessages.length">{{ consoleMessages.length }}</span>
         </div>
         <!-- 리사이즈 핸들 -->
         <div 
@@ -452,7 +454,7 @@ watch(hasGraph, (has, prev) => {
         ></div>
         <div class="console-content">
           <div 
-            v-for="(msg, idx) in graphMessages" 
+            v-for="(msg, idx) in consoleMessages" 
             :key="idx"
             class="log-item"
             :class="msg.type"
@@ -460,7 +462,7 @@ watch(hasGraph, (has, prev) => {
             <span class="time">{{ formatTime(msg.timestamp) }}</span>
             <span class="text">{{ msg.content }}</span>
           </div>
-          <div class="log-empty" v-if="graphMessages.length === 0">
+          <div class="log-empty" v-if="consoleMessages.length === 0">
             로그가 없습니다
           </div>
         </div>
@@ -557,6 +559,7 @@ watch(hasGraph, (has, prev) => {
   position: absolute;
   top: 8px;
   left: 8px;
+  right: 50px;
   display: flex;
   align-items: center;
   gap: 6px;

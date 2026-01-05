@@ -20,15 +20,20 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      // IPv6 localhost(::1) 이 아닌 IPv4(127.0.0.1)로 강제해서
-      // python 서버(0.0.0.0:포트)와의 연결 문제를 방지
+      // ANTLR Server - 파일 업로드, 파싱
       '/antlr': {
         target: 'http://127.0.0.1:8081',
         changeOrigin: true
       },
-      '/backend': {
+      // ROBO Analyzer - 소스 분석, 그래프 생성
+      '/robo': {
         target: 'http://127.0.0.1:5502',
-        changeOrigin: true,
+        changeOrigin: true
+      },
+      // Text2SQL API - 테이블 조회, ingest, ReAct
+      '/text2sql': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true
       }
     }
   },

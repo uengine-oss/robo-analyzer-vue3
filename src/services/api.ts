@@ -338,6 +338,46 @@ export const roboApi = {
 }
 
 // ============================================================================
+// Ingest API
+// ============================================================================
+
+const INGEST_BASE_URL = '/text2sql'
+
+export interface IngestRequest {
+  db_name?: string
+  schema?: string | null
+  clear_existing?: boolean
+}
+
+export interface IngestResponse {
+  message: string
+  status: string
+  tables_loaded: number
+  columns_loaded: number
+  fks_loaded: number
+}
+
+export const ingestApi = {
+  /**
+   * 데이터베이스 스키마를 Neo4j에 인제스천
+   */
+  async ingest(request: IngestRequest = {}): Promise<IngestResponse> {
+    const response = await fetch(`${INGEST_BASE_URL}/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+    
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '')
+      throw new Error(errorText || `HTTP ${response.status}`)
+    }
+    
+    return response.json()
+  }
+}
+
+// ============================================================================
 // Text2SQL API (ReAct)
 // ============================================================================
 

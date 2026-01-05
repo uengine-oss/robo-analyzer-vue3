@@ -4,9 +4,8 @@
  * 
  * 주요 기능:
  * - 프로젝트 메타데이터 관리
- * - 파일 업로드/파싱
- * - 분석 (그래프 생성)
- * - 다이어그램 생성
+ * - 파일 업로드/파싱/분석/인제스천 (순차 파이프라인)
+ * - 통합 콘솔 메시지
  */
 
 import { defineStore } from 'pinia'
@@ -24,27 +23,18 @@ import type {
   StreamMessage
 } from '@/types'
 
-// UML 다이어그램은 이제 VueFlow로 로컬에서 처리 (서버 API 요청 제거)
 import { useSessionStore } from './session'
-import { antlrApi, roboApi } from '@/services/api'
+import { antlrApi, roboApi, ingestApi } from '@/services/api'
 
 // ============================================================================
 // 타입 정의
 // ============================================================================
 
-type Strategy = 'dbms' | 'framework'
 type MessageType = StreamMessage['type']
 
 // ============================================================================
 // 유틸리티 함수
 // ============================================================================
-
-/**
- * 소스 타입에서 백엔드 strategy 추론
- */
-function getStrategyFromSource(source: SourceType): Strategy {
-  return (source === 'oracle' || source === 'postgresql') ? 'dbms' : 'framework'
-}
 
 /**
  * Neo4j 노드를 내부 형식으로 변환
@@ -117,11 +107,10 @@ export const useProjectStore = defineStore('project', () => {
   const currentStep = ref('')
   
   // ==========================================================================
-  // 상태 - 메시지 (업로드용 / 그래프용)
+  // 상태 - 통합 콘솔 메시지
   // ==========================================================================
   
-  const uploadMessages = ref<StreamMessage[]>([])
-  const graphMessages = ref<StreamMessage[]>([])
+  const consoleMessages = ref<StreamMessage[]>([])
   
   // ==========================================================================
   // Computed - 그래프 데이터
@@ -143,7 +132,7 @@ export const useProjectStore = defineStore('project', () => {
   }))
   
   const analyzeMeta = computed<BackendRequestMetadata>(() => ({
-    strategy: getStrategyFromSource(sourceType.value),
+    strategy: (sourceType.value === 'oracle' || sourceType.value === 'postgresql') ? 'dbms' : 'framework',
     target: sourceType.value,
     projectName: projectName.value
   }))
@@ -207,23 +196,15 @@ export const useProjectStore = defineStore('project', () => {
   }
   
   // ==========================================================================
-  // 내부 함수 - 메시지
+  // 내부 함수 - 통합 콘솔 메시지
   // ==========================================================================
   
-  function addUploadMessage(type: MessageType, content: string): void {
-    uploadMessages.value.push({ type, content, timestamp: createTimestamp() })
+  function addMessage(type: MessageType, content: string): void {
+    consoleMessages.value.push({ type, content, timestamp: createTimestamp() })
   }
   
-  function addGraphMessage(type: MessageType, content: string): void {
-    graphMessages.value.push({ type, content, timestamp: createTimestamp() })
-  }
-  
-  function clearUploadMessages(): void {
-    uploadMessages.value = []
-  }
-  
-  function clearGraphMessages(): void {
-    graphMessages.value = []
+  function clearMessages(): void {
+    consoleMessages.value = []
   }
   
   
@@ -244,112 +225,117 @@ export const useProjectStore = defineStore('project', () => {
   }
   
   // ==========================================================================
-  // Actions - 파일 업로드/파싱
+  // Actions - 개별 단계 함수
   // ==========================================================================
   
   /**
-   * 파일 업로드
+   * 파일 업로드 (내부용)
+   */
+  async function doUpload(files: File[], meta: BackendRequestMetadata) {
+    currentStep.value = '파일 업로드 중...'
+    addMessage('message', `🚀 파일 업로드 시작 (${files.length}개 파일)`)
+    
+    const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
+    
+    projectName.value = result.projectName
+    uploadedFiles.value = result.files
+    uploadedDdlFiles.value = result.ddlFiles
+    
+    addMessage('message', `✅ 업로드 완료: 소스 ${result.files.length}개, DDL ${result.ddlFiles.length}개`)
+    return result
+  }
+  
+  /**
+   * 파싱 요청 (내부용)
+   */
+  async function doParse() {
+    currentStep.value = '파싱 중...'
+    addMessage('message', '🔧 파싱 시작...')
+    
+    await antlrApi.parseStream(
+      analyzeMeta.value,
+      sessionStore.getHeaders(),
+      (event) => {
+        if (event.content) {
+          addMessage(event.type === 'error' ? 'error' : 'message', event.content)
+        }
+      }
+    )
+    
+    addMessage('message', '✅ 파싱 완료')
+  }
+  
+  /**
+   * 분석 실행 (내부용)
+   */
+  async function doAnalyze(): Promise<void> {
+    currentStep.value = '분석 진행 중...'
+    clearGraphData()
+    addMessage('message', '🔍 분석 시작...')
+    
+    await roboApi.analyze(
+      analyzeMeta.value,
+      sessionStore.getHeaders(),
+      (event) => {
+        if (event.content) {
+          addMessage(event.type === 'error' ? 'error' : 'message', event.content)
+        }
+        
+        const graph = event.graph
+        if (graph?.Nodes || graph?.Relationships) {
+          updateGraphData(graph.Nodes || [], graph.Relationships || [])
+        }
+      }
+    )
+    
+    addMessage('message', '✅ 분석 완료')
+  }
+  
+  /**
+   * 인제스천 실행 (내부용)
+   */
+  async function doIngest(): Promise<void> {
+    currentStep.value = '인제스천 중...'
+    addMessage('message', '📦 스키마 인제스천 시작...')
+    
+    const result = await ingestApi.ingest({
+      db_name: 'postgres',
+      schema: 'rwis',
+      clear_existing: false
+    })
+    
+    addMessage('message', `✅ 인제스천 완료: 테이블 ${result.tables_loaded}개, 컬럼 ${result.columns_loaded}개, FK ${result.fks_loaded}개`)
+  }
+  
+  // ==========================================================================
+  // Actions - 통합 파이프라인
+  // ==========================================================================
+  
+  /**
+   * 파일 업로드 후 파싱 → 분석 → 인제스천 순차 실행
    */
   async function uploadFiles(files: File[], meta: BackendRequestMetadata) {
     isProcessing.value = true
-    currentStep.value = '파일 업로드 중...'
-    addUploadMessage('message', `🚀 파일 업로드 시작 (${files.length}개 파일)`)
+    clearMessages()
     
     try {
-      const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
+      // 1. 업로드
+      await doUpload(files, meta)
       
-      projectName.value = result.projectName
-      uploadedFiles.value = result.files
-      uploadedDdlFiles.value = result.ddlFiles
+      // 2. 파싱
+      await doParse()
       
-      addUploadMessage('message', `✅ 업로드 완료: 소스 ${result.files.length}개, DDL ${result.ddlFiles.length}개`)
-      currentStep.value = '업로드 완료'
-      return result
+      // 3. 분석
+      await doAnalyze()
+      
+      // 4. 인제스천
+      await doIngest()
+      
+      currentStep.value = '전체 처리 완료'
+      addMessage('message', '🎉 전체 처리가 완료되었습니다!')
     } catch (error) {
-      addUploadMessage('error', `❌ 업로드 실패: ${error}`)
-      currentStep.value = '업로드 실패'
-      throw error
-    } finally {
-      isProcessing.value = false
-    }
-  }
-  
-  /**
-   * 파싱 요청 (스트림 방식 - NDJSON)
-   */
-  async function parseFiles() {
-    isProcessing.value = true
-    currentStep.value = '파싱 중...'
-    
-    try {
-      await antlrApi.parseStream(
-        analyzeMeta.value,
-        sessionStore.getHeaders(),
-        (event) => {
-          // 메시지 처리
-          if (event.content) {
-            addUploadMessage(event.type === 'error' ? 'error' : 'message', event.content)
-          }
-          
-          // 완료/에러
-          if (event.type === 'complete') {
-            currentStep.value = '파싱 완료'
-          } else if (event.type === 'error') {
-            currentStep.value = '파싱 에러'
-          }
-        }
-      )
-    } catch (error) {
-      addUploadMessage('error', `❌ 파싱 실패: ${error}`)
-      currentStep.value = '파싱 실패'
-      throw error
-    } finally {
-      isProcessing.value = false
-    }
-  }
-  
-  // ==========================================================================
-  // Actions - 분석 (그래프 생성)
-  // ==========================================================================
-  
-  /**
-   * 분석 실행
-   */
-  async function runAnalysis(): Promise<void> {
-    isProcessing.value = true
-    currentStep.value = '분석 진행 중...'
-    
-    clearGraphMessages()
-    clearGraphData()
-    
-    try {
-      await roboApi.analyze(
-        analyzeMeta.value,
-        sessionStore.getHeaders(),
-        (event) => {
-          // 메시지 처리 (자연어 상태 메시지)
-          if (event.content) {
-            addGraphMessage(event.type === 'error' ? 'error' : 'message', event.content)
-          }
-          
-          // 그래프 데이터 처리
-          const graph = event.graph
-          if (graph?.Nodes || graph?.Relationships) {
-            updateGraphData(graph.Nodes || [], graph.Relationships || [])
-          }
-          
-          // 완료/에러
-          if (event.type === 'complete') {
-            currentStep.value = '분석 완료'
-          } else if (event.type === 'error') {
-            // 상단 상태바에는 상세 에러(JSON 등)를 노출하지 않고,
-            // 간단한 메시지만 표시하고 상세 내용은 로그 패널에서만 보여준다.
-            currentStep.value = '분석 에러 (상세 내용은 로그 패널 참고)'
-          }
-        }
-      )
-    } catch (error) {
-      currentStep.value = '분석 실패'
+      addMessage('error', `❌ 처리 실패: ${error}`)
+      currentStep.value = '처리 실패'
       throw error
     } finally {
       isProcessing.value = false
@@ -393,8 +379,7 @@ export const useProjectStore = defineStore('project', () => {
     currentStep.value = ''
     
     // 메시지
-    uploadMessages.value = []
-    graphMessages.value = []
+    consoleMessages.value = []
   }
   
   // ==========================================================================
@@ -411,10 +396,10 @@ export const useProjectStore = defineStore('project', () => {
     graphData,
     isProcessing,
     currentStep,
-    uploadMessages,
-    graphMessages,
+    consoleMessages,
     
-    // Computed
+    // Computed (하위호환성: uploadMessages로도 접근 가능)
+    uploadMessages: consoleMessages,
     metadata,
     analyzeMeta,
     isValidConfig,
@@ -425,17 +410,11 @@ export const useProjectStore = defineStore('project', () => {
     setDdl,
     
     // Actions - Messages
-    addUploadMessage,
-    addGraphMessage,
-    clearUploadMessages,
-    clearGraphMessages,
+    addMessage,
+    clearMessages,
     
-    // Actions - File
+    // Actions - Pipeline
     uploadFiles,
-    parseFiles,
-    
-    // Actions - 분석
-    runAnalysis,
     
     // Actions - Misc
     deleteAllData,
