@@ -4,7 +4,8 @@ import { v4 as uuidv4 } from 'uuid'
 
 const STORAGE_KEY_SESSION_ID = 'robo-analyzer-session-id'
 const STORAGE_KEY_API_KEY = 'robo-analyzer-api-key'
-const STORAGE_KEY_ACTIVE_TAB = 'robo-analyzer-active-tab'
+const _STORAGE_KEY_ACTIVE_TAB = 'robo-analyzer-active-tab'
+void _STORAGE_KEY_ACTIVE_TAB // suppress unused warning
 
 // 로컬스토리지에서 값 로드
 const loadFromStorage = (key: string, defaultValue: string): string => {

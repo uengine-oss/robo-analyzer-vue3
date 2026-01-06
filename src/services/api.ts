@@ -291,7 +291,58 @@ export const antlrApi = {
 // ROBO Analyzer API
 // ============================================================================
 
+/** 파일 타입 감지 요청 항목 */
+interface FileContentForDetection {
+  fileName: string
+  content: string
+}
+
+/** 파일 타입 감지 결과 항목 */
+export interface FileTypeResult {
+  fileName: string
+  fileType: 'java' | 'oracle_sp' | 'oracle_ddl' | 'postgresql_sp' | 'postgresql_ddl' | 'python' | 'xml' | 'sql_generic' | 'unknown'
+  confidence: number
+  details: string
+  suggestedStrategy: 'framework' | 'dbms'
+  suggestedTarget: 'java' | 'oracle' | 'postgresql' | 'python'
+}
+
+/** 파일 타입 감지 응답 */
+export interface DetectTypesResponse {
+  files: FileTypeResult[]
+  summary: {
+    total: number
+    byType: Record<string, number>
+    suggestedStrategy: 'framework' | 'dbms'
+    suggestedTarget: 'java' | 'oracle' | 'postgresql' | 'python'
+  }
+}
+
 export const roboApi = {
+  /**
+   * 파일 내용을 분석하여 소스 코드 타입 자동 감지
+   * 
+   * Request Body:
+   *   files: [{ fileName: string, content: string }, ...]
+   * 
+   * Response: JSON
+   *   files: [{ fileName, fileType, confidence, details, suggestedStrategy, suggestedTarget }, ...]
+   *   summary: { total, byType, suggestedStrategy, suggestedTarget }
+   */
+  async detectTypes(files: FileContentForDetection[]): Promise<DetectTypesResponse> {
+    const response = await fetch(`${ROBO_BASE_URL}/detect-types/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files })
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  },
+
   /**
    * 소스 파일 분석 → Neo4j 그래프 생성
    * 
@@ -313,6 +364,27 @@ export const roboApi = {
       headers,
       onEvent
     )
+  },
+  
+  /**
+   * Neo4j에 기존 데이터 존재 여부 확인
+   * 
+   * Request Headers:
+   *   Session-UUID: 세션 UUID (필수)
+   * 
+   * Response: JSON { hasData: boolean, nodeCount: number }
+   */
+  async checkData(headers: Headers): Promise<{ hasData: boolean; nodeCount: number }> {
+    const response = await fetch(`${ROBO_BASE_URL}/check-data/`, {
+      method: 'GET',
+      headers
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
   },
   
   /**
@@ -588,6 +660,421 @@ export const text2sqlApi = {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
+    return response.json()
+  }
+}
+
+// ============================================================================
+// Lineage API (데이터 리니지)
+// ============================================================================
+
+export interface LineageNode {
+  id: string
+  name: string
+  type: 'SOURCE' | 'TARGET' | 'ETL'
+  properties: Record<string, unknown>
+}
+
+export interface LineageEdge {
+  id: string
+  source: string
+  target: string
+  type: string
+  properties: Record<string, unknown>
+}
+
+export interface LineageStats {
+  etlCount: number
+  sourceCount: number
+  targetCount: number
+  flowCount: number
+}
+
+export interface LineageGraphResponse {
+  nodes: LineageNode[]
+  edges: LineageEdge[]
+  stats: LineageStats
+}
+
+export interface LineageAnalyzeRequest {
+  projectName: string
+  sqlContent: string
+  fileName?: string
+  dbms?: string
+}
+
+export interface LineageInfo {
+  etl_name: string
+  source_tables: string[]
+  target_tables: string[]
+  operation_type: string
+}
+
+export interface LineageAnalyzeResponse {
+  lineages: LineageInfo[]
+  stats: {
+    etl_nodes: number
+    data_sources: number
+    data_flows: number
+  }
+}
+
+// ============================================================================
+// Glossary API (용어 관리)
+// ============================================================================
+
+export interface Glossary {
+  id: string
+  name: string
+  description: string
+  type: string
+  termCount: number
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface Term {
+  id: string
+  name: string
+  description: string
+  status: 'Draft' | 'Pending' | 'Approved' | 'Deprecated'
+  synonyms: string[]
+  owners: { id: string; name: string; email?: string }[]
+  reviewers?: { id: string; name: string; email?: string }[]
+  domains: { id: string; name: string }[]
+  tags: { id: string; name: string; color: string }[]
+  relatedTerms?: { id: string; name: string }[]
+  glossaryId?: string
+  glossaryName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface GlossaryDomain {
+  id: string
+  name: string
+  description?: string
+  termCount?: number
+}
+
+export interface GlossaryOwner {
+  id: string
+  name: string
+  email?: string
+}
+
+export interface GlossaryTag {
+  id: string
+  name: string
+  color: string
+  termCount?: number
+}
+
+export interface CreateGlossaryRequest {
+  name: string
+  description?: string
+  type?: string
+}
+
+export interface CreateTermRequest {
+  name: string
+  description?: string
+  status?: string
+  synonyms?: string[]
+  domains?: string[]
+  owners?: string[]
+  reviewers?: string[]
+  tags?: string[]
+}
+
+export interface UpdateTermRequest {
+  name?: string
+  description?: string
+  status?: string
+  synonyms?: string[]
+  domains?: string[]
+  owners?: string[]
+  reviewers?: string[]
+  tags?: string[]
+}
+
+export const glossaryApi = {
+  /**
+   * 용어집 목록 조회
+   */
+  async getGlossaries(headers: Headers): Promise<{ glossaries: Glossary[] }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어집 생성
+   */
+  async createGlossary(headers: Headers, data: CreateGlossaryRequest): Promise<{ id: string; name: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어집 상세 조회
+   */
+  async getGlossary(headers: Headers, glossaryId: string): Promise<Glossary> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어집 수정
+   */
+  async updateGlossary(headers: Headers, glossaryId: string, data: Partial<CreateGlossaryRequest>): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}`, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+  },
+
+  /**
+   * 용어집 삭제
+   */
+  async deleteGlossary(headers: Headers, glossaryId: string): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}`, {
+      method: 'DELETE',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+  },
+
+  /**
+   * 용어 목록 조회
+   */
+  async getTerms(headers: Headers, glossaryId: string, options?: { status?: string; search?: string }): Promise<{ terms: Term[] }> {
+    const params = new URLSearchParams()
+    if (options?.status) params.append('status', options.status)
+    if (options?.search) params.append('search', options.search)
+    
+    const queryString = params.toString()
+    const url = `${ROBO_BASE_URL}/glossary/${glossaryId}/terms${queryString ? '?' + queryString : ''}`
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어 생성
+   */
+  async createTerm(headers: Headers, glossaryId: string, data: CreateTermRequest): Promise<{ id: string; name: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}/terms`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어 상세 조회
+   */
+  async getTerm(headers: Headers, glossaryId: string, termId: string): Promise<Term> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}/terms/${termId}`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 용어 수정
+   */
+  async updateTerm(headers: Headers, glossaryId: string, termId: string, data: UpdateTermRequest): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}/terms/${termId}`, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+  },
+
+  /**
+   * 용어 삭제
+   */
+  async deleteTerm(headers: Headers, glossaryId: string, termId: string): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/${glossaryId}/terms/${termId}`, {
+      method: 'DELETE',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+  },
+
+  /**
+   * 도메인 목록 조회
+   */
+  async getDomains(headers: Headers): Promise<{ domains: GlossaryDomain[] }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/domains`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 소유자 목록 조회
+   */
+  async getOwners(headers: Headers): Promise<{ owners: GlossaryOwner[] }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/owners`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 태그 목록 조회
+   */
+  async getTags(headers: Headers): Promise<{ tags: GlossaryTag[] }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/tags`, {
+      method: 'GET',
+      headers
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 도메인 생성
+   */
+  async createDomain(headers: Headers, data: { name: string; description?: string }): Promise<{ id: string; name: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/domains`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 소유자 생성
+   */
+  async createOwner(headers: Headers, data: { name: string; email?: string }): Promise<{ id: string; name: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/owners`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  },
+
+  /**
+   * 태그 생성
+   */
+  async createTag(headers: Headers, data: { name: string; color?: string }): Promise<{ id: string; name: string; color: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/glossary/meta/tags`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    return response.json()
+  }
+}
+
+export const lineageApi = {
+  /**
+   * 데이터 리니지 그래프 조회
+   */
+  async getLineageGraph(
+    headers: Headers,
+    projectName?: string
+  ): Promise<LineageGraphResponse> {
+    const params = projectName ? `?projectName=${encodeURIComponent(projectName)}` : ''
+    const response = await fetch(`${ROBO_BASE_URL}/lineage/${params}`, {
+      method: 'GET',
+      headers
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  },
+  
+  /**
+   * ETL 코드에서 리니지 분석
+   */
+  async analyzeLineage(
+    headers: Headers,
+    request: LineageAnalyzeRequest
+  ): Promise<LineageAnalyzeResponse> {
+    const response = await fetch(`${ROBO_BASE_URL}/lineage/analyze/`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(request)
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
     return response.json()
   }
 }

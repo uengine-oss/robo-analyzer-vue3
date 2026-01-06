@@ -1,52 +1,50 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
 import DropZone from './DropZone.vue'
 import UploadModal from './UploadModal.vue'
 import UploadTree from './UploadTree.vue'
 import JsonViewer from './JsonViewer.vue'
+import AnalysisProgressModal from './AnalysisProgressModal.vue'
 import { buildUploadTreeFromUploadedFiles, uniqueFilesByRelPath } from '@/utils/upload'
-import { useResize } from '@/composables/useResize'
+import { roboApi, type DetectTypesResponse } from '@/services/api'
+import type { FileTypeResult } from '@/services/api'
+void (0 as unknown as FileTypeResult) // suppress unused warning
+import { IconFolder, IconDatabase, IconFile, IconFolderOpen, IconLightbulb, IconSettings, IconX } from '@/components/icons'
 
 const projectStore = useProjectStore()
+const sessionStore = useSessionStore()
 const { 
   uploadedFiles, 
   uploadedDdlFiles,
   isProcessing,
   currentStep,
   projectName,
-  uploadMessages
+  uploadMessages,
+  totalSteps,
+  completedSteps
 } = storeToRefs(projectStore)
 
-// 콘솔 관련 상태 - 기본값 닫힘
-const showConsole = ref(false)
+// 분석 진행 모달 표시 상태
+const showAnalysisModal = ref(false)
 
-// 콘솔 리사이즈
-const { value: consoleHeight, isResizing: isConsoleResizing, startResize: startConsoleResize } = useResize({
-  direction: 'vertical',
-  initialValue: 200,
-  min: 100,
-  max: 600,
-  fromEnd: true
+// 프로세싱 시작 시 자동으로 모달 열기
+watch(isProcessing, (processing) => {
+  if (processing) {
+    showAnalysisModal.value = true
+  }
 })
 
-// 상태 타입 계산
-const statusType = computed(() => {
-  if (!currentStep.value) return 'idle'
-  const step = currentStep.value.toLowerCase()
-  if (step.includes('에러') || step.includes('실패') || step.includes('error')) return 'error'
-  if (step.includes('완료') || step.includes('complete')) return 'success'
-  if (isProcessing.value) return 'processing'
-  return 'idle'
-})
-
-// 시간 포맷
-function formatTime(timestamp: string): string {
-  if (!timestamp) return ''
-  return new Date(timestamp).toLocaleTimeString('ko-KR', { 
-    hour: '2-digit', minute: '2-digit', second: '2-digit' 
-  })
+// 모달 닫기 핸들러 - 완료 시 그래프 탭으로 이동
+const handleAnalysisModalClose = () => {
+  showAnalysisModal.value = false
+  
+  // 분석이 완료되었으면 그래프 탭으로 이동
+  if (completedSteps.value >= totalSteps.value && !isProcessing.value) {
+    sessionStore.setActiveTab('graph')
+  }
 }
 
 // 업로드된 파일을 트리 구조로 표시
@@ -65,6 +63,10 @@ const pendingMetadata = ref<{
 }>({
   projectName: '',
 })
+
+// 자동 감지 결과
+const detectedTypes = ref<DetectTypesResponse | null>(null)
+const isDetecting = ref(false)
 
 // 열린 탭 관리
 interface OpenTab {
@@ -99,12 +101,104 @@ const handleOpenModal = () => {
   showModal.value = true
 }
 
-// 파일 드롭 시 - 파일 분석 후 모달 열기
-const handleFilesDrop = (files: File[]) => {
+// 파일 내용 읽기 유틸리티
+const readFileContent = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(file)
+  })
+}
+
+// 분석 대상 확장자 목록 (DDL은 .txt 등 다양한 확장자 가능)
+const ANALYZABLE_EXTENSIONS = ['.java', '.sql', '.pls', '.pck', '.pkb', '.pks', '.trg', '.fnc', '.prc', '.py', '.xml', '.txt', '.ddl']
+
+// 파일 드롭 시 - 파일 분석 후 모달 열기 (자동 타입 감지 포함)
+const handleFilesDrop = async (files: File[]) => {
   const metadata = analyzeFileStructure(files)
   pendingFiles.value = files
   pendingMetadata.value = metadata
+  detectedTypes.value = null
+  
+  // 모달 먼저 열기 (로딩 표시)
+  isDetecting.value = true
   showModal.value = true
+  
+  try {
+    // 분석 대상 파일만 필터링 (확장자 기준)
+    const analyzableFiles = files.filter(f => {
+      const ext = f.name.toLowerCase().match(/\.[^.]+$/)?.[0] || ''
+      return ANALYZABLE_EXTENSIONS.includes(ext)
+    })
+    
+    if (analyzableFiles.length > 0) {
+      // 파일 내용 읽기 (최대 100개, 각 파일 최대 50KB만)
+      const filesToAnalyze = analyzableFiles.slice(0, 100)
+      const fileContents = await Promise.all(
+        filesToAnalyze.map(async (file) => {
+          try {
+            const content = await readFileContent(file)
+            // 내용이 너무 길면 앞부분만 분석
+            return {
+              fileName: file.webkitRelativePath || file.name,
+              content: content.slice(0, 50000)
+            }
+          } catch {
+            return { fileName: file.name, content: '' }
+          }
+        })
+      )
+      
+      // 백엔드에 타입 감지 요청
+      const result = await roboApi.detectTypes(fileContents)
+      detectedTypes.value = result
+      
+      console.log('[UploadTab] 파일 타입 감지 완료:', result.summary)
+      
+      // DDL로 감지된 파일들을 자동으로 ddl/ 폴더로 이동
+      const ddlFileNames = new Set(
+        result.files
+          .filter(f => f.fileType === 'oracle_ddl' || f.fileType === 'postgresql_ddl')
+          .map(f => f.fileName)
+      )
+      
+      if (ddlFileNames.size > 0) {
+        console.log('[UploadTab] DDL 파일 자동 분류:', ddlFileNames)
+        
+        // 파일 경로를 ddl/ 폴더로 변경
+        pendingFiles.value = pendingFiles.value.map(file => {
+          const filePath = file.webkitRelativePath || file.name
+          
+          // 이미 ddl 폴더에 있으면 스킵
+          if (filePath.toLowerCase().startsWith('ddl/') || filePath.toLowerCase().includes('/ddl/')) {
+            return file
+          }
+          
+          // DDL로 감지된 파일이면 ddl/ 폴더로 이동
+          if (ddlFileNames.has(filePath)) {
+            const fileName = filePath.split('/').pop() || file.name
+            const newPath = `ddl/${fileName}`
+            
+            // webkitRelativePath를 변경한 새 File 객체 생성
+            Object.defineProperty(file, 'webkitRelativePath', {
+              value: newPath,
+              writable: false,
+              configurable: true
+            })
+            
+            console.log(`[UploadTab] DDL 파일 이동: ${filePath} -> ${newPath}`)
+          }
+          
+          return file
+        })
+      }
+    }
+  } catch (error) {
+    console.error('[UploadTab] 파일 타입 감지 실패:', error)
+  } finally {
+    isDetecting.value = false
+  }
 }
 
 // 디렉토리 구조 분석
@@ -242,7 +336,7 @@ const activateTab = (tabId: string) => {
           <!-- 업로드 가이드 -->
           <div class="upload-guide">
             <div class="guide-header">
-              <span class="guide-icon">💡</span>
+              <IconLightbulb :size="16" class="guide-icon" />
               <span class="guide-title">사용 가이드</span>
             </div>
             <div class="guide-content">
@@ -263,14 +357,15 @@ const activateTab = (tabId: string) => {
               <div class="guide-item">
                 <span class="guide-step">3</span>
                 <div class="guide-text">
-                  <span class="guide-text-main">Text2SQL 활용</span>
-                  <span class="guide-text-detail">Text2SQL 탭에서 검색을 통해 자연어로 SQL 쿼리를 생성할 수 있습니다</span>
+                  <span class="guide-text-main">자연어 질의 활용</span>
+                  <span class="guide-text-detail">자연어 질의 탭에서 자연어로 SQL 쿼리를 생성할 수 있습니다</span>
                 </div>
               </div>
             </div>
             <div class="guide-tips">
               <div class="tip-item">
-                <span class="tip-label">⚙️ 설정:</span>
+                <IconSettings :size="12" class="tip-icon" />
+                <span class="tip-label">설정:</span>
                 <span class="tip-text">상단에서 소스/타겟 타입 선택, 설정 아이콘에서 노드 제한 및 UML 깊이 조정</span>
               </div>
             </div>
@@ -283,7 +378,8 @@ const activateTab = (tabId: string) => {
             <!-- 파일 트리 패널 -->
             <section class="files-panel">
               <div class="panel-header">
-                <h3 class="panel-title">📁 파일 ({{ uploadedFiles.length }})</h3>
+                <IconFolder :size="14" />
+                <h3 class="panel-title">파일 ({{ uploadedFiles.length }})</h3>
               </div>
               <UploadTree
                 v-if="uploadedFiles.length > 0"
@@ -300,7 +396,8 @@ const activateTab = (tabId: string) => {
             <!-- DDL 패널 -->
             <section class="ddl-panel">
               <div class="panel-header">
-                <h3 class="panel-title">🗄️ DDL ({{ uploadedDdlFiles.length }})</h3>
+                <IconDatabase :size="14" />
+                <h3 class="panel-title">DDL ({{ uploadedDdlFiles.length }})</h3>
               </div>
               <div class="ddl-content">
                 <UploadTree
@@ -330,9 +427,11 @@ const activateTab = (tabId: string) => {
             :class="{ active: activeTabId === tab.id }"
             @click="activateTab(tab.id)"
           >
-            <span class="tab-icon">📄</span>
+            <IconFile :size="14" class="tab-icon" />
             <span class="tab-name" :title="tab.fileName">{{ tab.fileName }}</span>
-            <button class="tab-close" @click.stop="closeTab(tab.id)">×</button>
+            <button class="tab-close" @click.stop="closeTab(tab.id)">
+              <IconX :size="12" />
+            </button>
           </div>
         </div>
         
@@ -347,7 +446,7 @@ const activateTab = (tabId: string) => {
           </template>
           <template v-else>
             <div class="empty-state">
-              <span class="empty-icon">📂</span>
+              <IconFolderOpen :size="48" class="empty-icon" />
               <p>파일을 선택하면 내용이 여기에 표시됩니다</p>
             </div>
           </template>
@@ -355,57 +454,24 @@ const activateTab = (tabId: string) => {
       </div>
     </div>
     
-    <!-- 플로팅: 콘솔 토글 버튼 (콘솔이 닫혔을 때만 표시) -->
-    <button 
-      v-if="!showConsole"
-      class="console-toggle-btn"
-      :class="[statusType]"
-      @click="showConsole = !showConsole"
-    >
-      <span class="status-dot"></span>
-      콘솔
-      <span class="count" v-if="uploadMessages.length">{{ uploadMessages.length }}</span>
-    </button>
-    
-    <!-- 플로팅 콘솔 -->
-    <Transition name="slide-up">
-      <div class="floating-console" v-if="showConsole" :style="{ height: `${consoleHeight}px` }">
-        <div class="console-header">
-          <span>콘솔</span>
-          <span class="console-count" v-if="uploadMessages.length">{{ uploadMessages.length }}</span>
-        </div>
-        <!-- 리사이즈 핸들 -->
-        <div 
-          class="console-resize-handle"
-          :class="{ resizing: isConsoleResizing }"
-          @mousedown="startConsoleResize"
-        ></div>
-        <div class="console-content">
-          <div 
-            v-for="(msg, idx) in uploadMessages" 
-            :key="idx"
-            class="log-item"
-            :class="msg.type"
-          >
-            <span class="time">{{ formatTime(msg.timestamp) }}</span>
-            <span class="text">{{ msg.content }}</span>
-          </div>
-          <div class="log-empty" v-if="uploadMessages.length === 0">
-            로그가 없습니다
-          </div>
-        </div>
-        <!-- 콘솔 닫기 버튼 (하단 중앙) -->
-        <button class="console-close-btn-bottom" @click="showConsole = false">
-          <span class="arrow">▼</span>
-        </button>
-      </div>
-    </Transition>
+    <!-- 분석 진행 모달 -->
+    <AnalysisProgressModal
+      :visible="showAnalysisModal"
+      :messages="uploadMessages"
+      :current-step="currentStep"
+      :is-processing="isProcessing"
+      :total-steps="totalSteps"
+      :completed-steps="completedSteps"
+      @close="handleAnalysisModalClose"
+    />
     
     <!-- 업로드 모달 -->
     <UploadModal 
       v-if="showModal"
       :initial-metadata="pendingMetadata"
       :initial-files="pendingFiles"
+      :detected-types="detectedTypes"
+      :is-detecting="isDetecting"
       @confirm="handleUploadConfirm"
       @cancel="showModal = false"
       @add-files="handleAddFiles"
@@ -422,7 +488,7 @@ const activateTab = (tabId: string) => {
   padding: var(--spacing-md);
   gap: var(--spacing-md);
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-bg);
   position: relative;
 }
 
@@ -481,12 +547,16 @@ const activateTab = (tabId: string) => {
     padding: 10px 12px;
     background: var(--color-bg-secondary);
     border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-text-light);
   }
   
   .panel-title {
     font-size: 13px;
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--color-text);
     margin: 0;
   }
   
@@ -517,12 +587,16 @@ const activateTab = (tabId: string) => {
     padding: 10px 12px;
     background: var(--color-bg-secondary);
     border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-text-light);
   }
   
   .panel-title {
     font-size: 13px;
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--color-text);
     margin: 0;
   }
   
@@ -545,8 +619,8 @@ const activateTab = (tabId: string) => {
 
 .upload-guide {
   padding: 16px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
@@ -564,31 +638,31 @@ const activateTab = (tabId: string) => {
   }
   
   &::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: var(--color-border);
     border-radius: 3px;
     
     &:hover {
-      background: #94a3b8;
+      background: var(--color-text-light);
     }
   }
   
   // Firefox
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--color-border) transparent;
   
   .guide-header {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     
     .guide-icon {
-      font-size: 14px;
+      color: var(--color-warning);
     }
     
     .guide-title {
       font-size: 13px;
       font-weight: 600;
-      color: #374151;
+      color: var(--color-text-bright);
     }
   }
   
@@ -608,9 +682,9 @@ const activateTab = (tabId: string) => {
         justify-content: center;
         width: 24px;
         height: 24px;
-        background: #e5e7eb;
-        color: #6b7280;
-        border-radius: 4px;
+        background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+        color: white;
+        border-radius: var(--radius-sm);
         font-size: 12px;
         font-weight: 600;
         flex-shrink: 0;
@@ -625,13 +699,13 @@ const activateTab = (tabId: string) => {
         
         .guide-text-main {
           font-size: 13px;
-          color: #374151;
+          color: var(--color-text);
           font-weight: 600;
         }
         
         .guide-text-detail {
           font-size: 11px;
-          color: #6b7280;
+          color: var(--color-text-light);
           line-height: 1.4;
         }
       }
@@ -641,19 +715,24 @@ const activateTab = (tabId: string) => {
   .guide-tips {
     padding-top: 6px;
     margin-top: 6px;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--color-border);
     
     .tip-item {
       display: flex;
       align-items: flex-start;
       gap: 6px;
       font-size: 11px;
-      color: #6b7280;
+      color: var(--color-text-light);
       line-height: 1.5;
+      
+      .tip-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
       
       .tip-label {
         font-weight: 600;
-        color: #4b5563;
+        color: var(--color-text);
         flex-shrink: 0;
       }
       
@@ -706,7 +785,7 @@ const activateTab = (tabId: string) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #3B82F6;
+  background: var(--color-accent);
   border: none;
   border-radius: var(--radius-sm);
   color: white;
@@ -716,11 +795,11 @@ const activateTab = (tabId: string) => {
   transition: background 0.15s;
   
   &:hover {
-    background: #2563EB;
+    background: var(--color-accent-hover);
   }
   
   &:active {
-    background: #1D4ED8;
+    background: var(--color-accent-hover);
   }
 }
 
@@ -739,14 +818,14 @@ const activateTab = (tabId: string) => {
   transition: all 0.15s;
   
   &:hover {
-    background: #3B82F6;
-    border-color: #3B82F6;
+    background: var(--color-accent);
+    border-color: var(--color-accent);
     color: white;
   }
   
   &:active {
-    background: #2563EB;
-    border-color: #2563EB;
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
   }
 }
 
@@ -769,7 +848,8 @@ const activateTab = (tabId: string) => {
 .upload-right {
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
   min-height: 0;
@@ -778,7 +858,7 @@ const activateTab = (tabId: string) => {
 
 .tabs-header {
   display: flex;
-  background: var(--color-bg-elevated);
+  background: var(--color-bg-tertiary);
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
   overflow-y: hidden;
@@ -787,7 +867,7 @@ const activateTab = (tabId: string) => {
   
   // 스크롤바 표시 (연한 색상)
   scrollbar-width: thin;
-  scrollbar-color: rgba(150, 150, 150, 0.25) transparent;
+  scrollbar-color: var(--color-border) transparent;
   
   &::-webkit-scrollbar {
     height: 4px;
@@ -798,11 +878,11 @@ const activateTab = (tabId: string) => {
   }
   
   &::-webkit-scrollbar-thumb {
-    background: rgba(150, 150, 150, 0.25);
+    background: var(--color-border);
     border-radius: 2px;
     
     &:hover {
-      background: rgba(150, 150, 150, 0.4);
+      background: var(--color-text-light);
     }
   }
 }
@@ -816,38 +896,43 @@ const activateTab = (tabId: string) => {
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--transition-fast);
-  background: var(--color-bg-secondary);
-  flex-shrink: 0; // 탭이 축소되지 않도록 고정
-  min-width: 0; // 텍스트 오버플로우 처리를 위해
-  max-width: 200px; // 최대 너비 제한
+  background: var(--color-bg-tertiary);
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 200px;
   
   &:hover {
-    background: var(--color-bg-tertiary);
+    background: var(--color-bg-elevated);
   }
   
   &.active {
-    background: var(--color-bg-tertiary);
-    border-bottom: 2px solid var(--color-accent-primary);
+    background: var(--color-bg-secondary);
+    border-bottom: 2px solid var(--color-accent);
     margin-bottom: -1px;
     
+    .tab-icon {
+      color: var(--color-accent);
+    }
+    
     .tab-name {
-      color: var(--color-accent-primary);
+      color: var(--color-accent);
     }
   }
 }
 
 .tab-icon {
-  font-size: 14px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
 }
 
 .tab-name {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--color-text-light);
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
-  min-width: 0; // 오버플로우 처리를 위한 필수 속성
+  min-width: 0;
 }
 
 .tab-close {
@@ -861,12 +946,10 @@ const activateTab = (tabId: string) => {
   border-radius: var(--radius-sm);
   color: var(--color-text-muted);
   cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
   
   &:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--color-text-primary);
+    background: rgba(250, 82, 82, 0.15);
+    color: var(--color-error);
   }
 }
 
@@ -875,7 +958,7 @@ const activateTab = (tabId: string) => {
   overflow: auto;
   padding: var(--spacing-md);
   min-height: 0;
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -894,18 +977,18 @@ const activateTab = (tabId: string) => {
   }
   
   &::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.1);
+    background: var(--color-bg-tertiary);
     border-radius: 5px;
   }
   
   &::-webkit-scrollbar-thumb {
-    background: rgba(100, 100, 100, 0.5);
+    background: var(--color-border);
     border-radius: 5px;
     border: 2px solid transparent;
     background-clip: padding-box;
     
     &:hover {
-      background: rgba(100, 100, 100, 0.7);
+      background: var(--color-text-light);
       background-clip: padding-box;
     }
   }
@@ -927,7 +1010,7 @@ const activateTab = (tabId: string) => {
   max-width: 100%;
   
   code {
-    color: var(--color-text-primary);
+    color: var(--color-text);
   }
 }
 
@@ -937,218 +1020,16 @@ const activateTab = (tabId: string) => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--color-text-muted);
+  color: var(--color-text-light);
+  gap: var(--spacing-md);
   
   .empty-icon {
-    font-size: 48px;
-    margin-bottom: var(--spacing-md);
-    opacity: 0.5;
-  }
-}
-
-// ============================================================================
-// 콘솔 토글 버튼
-// ============================================================================
-
-.console-toggle-btn {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #374151;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  z-index: 100;
-  transition: all 0.15s;
-  
-  &:hover {
-    background: #f9fafb;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    opacity: 0.3;
   }
   
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #9ca3af;
-  }
-  
-  &.processing .status-dot {
-    background: #3b82f6;
-    animation: pulse 1.5s infinite;
-  }
-  
-  &.error .status-dot {
-    background: #ef4444;
-  }
-  
-  &.success .status-dot {
-    background: #22c55e;
-  }
-  
-  .count {
-    padding: 2px 6px;
-    background: #3b82f6;
-    color: white;
-    border-radius: 8px;
-    font-size: 10px;
-    font-weight: 600;
-  }
-}
-
-// ============================================================================
-// 플로팅 콘솔
-// ============================================================================
-
-.floating-console {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #f8fafc;
-  border-top: 2px solid #cbd5e1;
-  z-index: 90;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-  
-  .console-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #ffffff;
-    border-bottom: 1px solid #e5e7eb;
-    font-size: 12px;
-    font-weight: 600;
-    color: #374151;
-    
-    .console-count {
-      padding: 2px 6px;
-      background: #3b82f6;
-      color: white;
-      border-radius: 8px;
-      font-size: 10px;
-      font-weight: 600;
-    }
-  }
-  
-  .console-close-btn-bottom {
-    position: absolute;
-    bottom: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    color: #64748b;
+  p {
     font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    z-index: 10;
-    transition: all 0.15s;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
-    
-    .arrow {
-      font-size: 12px;
-    }
-    
-    &:hover {
-      background: #f1f5f9;
-      color: #1e293b;
-      border-color: #94a3b8;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-    }
-  }
-  
-  .console-resize-handle {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 4px;
-    cursor: row-resize;
-    z-index: 1;
-    background: transparent;
-    transition: background 0.15s;
-    
-    &:hover {
-      background: #cbd5e1;
-    }
-    
-    &.resizing {
-      background: #94a3b8;
-    }
-  }
-  
-  .console-content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 12px;
-    margin-top: 4px;
-    font-family: 'Consolas', monospace;
-    font-size: 11px;
-    background: #ffffff;
-    margin-left: 4px;
-    margin-right: 4px;
-    margin-bottom: 4px;
-    border-radius: 4px;
-    border: 1px solid #e2e8f0;
-  }
-  
-  .log-item {
-    display: flex;
-    gap: 10px;
-    padding: 3px 0;
-    color: #374151;
-    
-    &.error {
-      color: #dc2626;
-    }
-    
-    .time {
-      color: #9ca3af;
-      flex-shrink: 0;
-    }
-  }
-  
-  .log-empty {
-    color: #9ca3af;
-    text-align: center;
-    padding: 16px;
   }
 }
 
-// ============================================================================
-// 트랜지션
-// ============================================================================
-
-.slide-up-enter-active,
-.slide-up-leave-active {
-  transition: transform 0.2s ease;
-}
-
-.slide-up-enter-from,
-.slide-up-leave-to {
-  transform: translateY(100%);
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
 </style>

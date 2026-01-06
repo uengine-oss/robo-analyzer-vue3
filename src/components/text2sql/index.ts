@@ -11,4 +11,8 @@ export { default as ReactSummaryPanel } from './ReactSummaryPanel.vue'
 export { default as ERDiagram } from './ERDiagram.vue'
 export { default as RelationshipManager } from './RelationshipManager.vue'
 export { default as ResultTable } from './ResultTable.vue'
+export { default as SchemaView } from './SchemaView.vue'
+export { default as DatabaseTree } from './DatabaseTree.vue'
+export { default as TableCard } from './TableCard.vue'
+export { default as ColumnDetailPanel } from './ColumnDetailPanel.vue'
 

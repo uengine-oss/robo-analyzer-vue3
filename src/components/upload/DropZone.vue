@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { IconUpload } from '@/components/icons'
 
 const emit = defineEmits<{
   'files-drop': [files: File[]]
@@ -101,27 +102,28 @@ const handleClick = () => {
   >
     <div class="drop-content">
       <div class="drop-icon">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 16V8M12 8L9 11M12 8L15 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M3 15V16C3 18.2091 4.79086 20 7 20H17C19.2091 20 21 18.2091 21 16V15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
+        <IconUpload :size="56" :stroke-width="1.5" />
       </div>
       <p class="drop-text">
         프로젝트 폴더를 <strong>드래그</strong>하거나<br>
         이 영역을 <strong>클릭</strong>하여 업로드 설정
       </p>
+      <p class="drop-hint">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        파일 내용을 분석하여 소스 타입 자동 감지
+      </p>
       <div class="drop-formats">
         <span>.java</span>
         <span>.sql</span>
+        <span>.py</span>
         <span>.xml</span>
-        <span>최대 3MB</span>
       </div>
     </div>
     
     <div class="drop-overlay">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 16V8M12 8L9 11M12 8L15 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <IconUpload :size="48" :stroke-width="1.5" />
       <span>여기에 놓으세요</span>
     </div>
   </div>
@@ -142,24 +144,24 @@ const handleClick = () => {
   box-shadow: var(--shadow-sm);
   
   &:hover {
-    border-color: var(--color-accent-primary);
+    border-color: var(--color-accent);
     background: linear-gradient(
       135deg,
-      rgba(59, 130, 246, 0.03) 0%,
-      transparent 100%
+      rgba(34, 139, 230, 0.08) 0%,
+      rgba(34, 139, 230, 0.02) 100%
     );
     box-shadow: var(--shadow-md);
     
     .drop-icon {
-      color: var(--color-accent-primary);
+      color: var(--color-accent);
       transform: translateY(-4px);
     }
   }
   
   &.drag-over {
-    border-color: var(--color-accent-primary);
+    border-color: var(--color-accent);
     border-style: solid;
-    background: rgba(59, 130, 246, 0.06);
+    background: rgba(34, 139, 230, 0.12);
     
     .drop-overlay {
       opacity: 1;
@@ -188,12 +190,25 @@ const handleClick = () => {
 .drop-text {
   font-size: 15px;
   line-height: 1.6;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-lg);
+  color: var(--color-text-light);
+  margin-bottom: var(--spacing-sm);
   
   strong {
-    color: var(--color-text-primary);
+    color: var(--color-text-bright);
     font-weight: 600;
+  }
+}
+
+.drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-success);
+  margin-bottom: var(--spacing-lg);
+  
+  svg {
+    color: var(--color-warning);
   }
 }
 
@@ -205,9 +220,16 @@ const handleClick = () => {
     padding: 4px 10px;
     font-size: 12px;
     font-family: var(--font-mono);
-    color: var(--color-text-muted);
-    background: var(--color-bg-secondary);
+    color: var(--color-text-light);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+    
+    &:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
   }
 }
 
@@ -219,8 +241,8 @@ const handleClick = () => {
   align-items: center;
   justify-content: center;
   gap: var(--spacing-md);
-  color: var(--color-accent-primary);
-  background: rgba(59, 130, 246, 0.08);
+  color: var(--color-accent);
+  background: rgba(34, 139, 230, 0.12);
   border-radius: var(--radius-lg);
   opacity: 0;
   transition: opacity var(--transition-fast);

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { IconPlus, IconFile, IconFolder } from '@/components/icons'
 
 interface Props {
   title?: string
@@ -47,12 +48,20 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick, true))
 <template>
   <div ref="rootRef" class="add-menu">
     <button class="add-btn" type="button" @click.stop="toggle" :title="title || '추가'">
-      ＋
+      <IconPlus :size="16" :stroke-width="2.5" />
     </button>
-    <div v-if="open" class="menu">
-      <button class="menu-item" type="button" @click="onPickFile">📄 파일 추가</button>
-      <button class="menu-item" type="button" @click="onPickFolder">📁 폴더 추가</button>
-    </div>
+    <Transition name="dropdown">
+      <div v-if="open" class="menu">
+        <button class="menu-item" type="button" @click="onPickFile">
+          <IconFile :size="14" />
+          <span>파일 추가</span>
+        </button>
+        <button class="menu-item" type="button" @click="onPickFolder">
+          <IconFolder :size="14" />
+          <span>폴더 추가</span>
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -62,33 +71,32 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick, true))
 }
 
 .add-btn {
-  width: 34px;
-  height: 30px;
+  width: 32px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  border: 1px solid rgba(59, 130, 246, 0.32);
-  background: rgba(59, 130, 246, 0.06);
-  color: rgba(59, 130, 246, 0.95);
-  font-size: 18px;
-  line-height: 1;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(34, 139, 230, 0.35);
+  background: rgba(34, 139, 230, 0.08);
+  color: var(--color-accent);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  transition: all 0.15s;
 
   &:hover {
-    background: rgba(59, 130, 246, 0.1);
-    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(34, 139, 230, 0.15);
+    border-color: var(--color-accent);
+    transform: translateY(-1px);
   }
 
   &:active {
-    transform: translateY(1px);
+    transform: translateY(0);
   }
 }
 
 .menu {
   position: absolute;
-  top: 32px;
+  top: calc(100% + 4px);
   right: 0;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -96,23 +104,42 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick, true))
   box-shadow: var(--shadow-md);
   overflow: hidden;
   z-index: 10;
-  min-width: 120px;
+  min-width: 140px;
 }
 
 .menu-item {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-align: left;
-  padding: 8px 10px;
+  padding: 10px 14px;
   background: transparent;
   border: none;
   cursor: pointer;
-  font-size: 12px;
-  color: var(--color-text-primary);
+  font-size: 13px;
+  color: var(--color-text);
+  transition: all 0.15s;
 
   &:hover {
     background: var(--color-bg-tertiary);
+    color: var(--color-text-bright);
+  }
+  
+  &:first-child {
+    border-bottom: 1px solid var(--color-border);
   }
 }
+
+// Dropdown animation
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: all 0.15s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
 </style>
-
-

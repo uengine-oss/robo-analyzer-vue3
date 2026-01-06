@@ -27,7 +27,7 @@ import { RouterView } from 'vue-router'
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--color-bg-primary);
+  background: var(--color-bg);
 }
 
 .main-body {
@@ -40,6 +40,6 @@ import { RouterView } from 'vue-router'
   flex: 1;
   display: flex;
   overflow: hidden;
-  background: #f8fafc;
+  background: var(--color-bg);
 }
 </style>

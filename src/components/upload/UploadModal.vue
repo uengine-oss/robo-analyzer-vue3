@@ -3,13 +3,19 @@ import { ref, watch, computed } from 'vue'
 import UploadTree from './UploadTree.vue'
 import AddMenu from './AddMenu.vue'
 import type { SourceType } from '@/types'
+import type { DetectTypesResponse } from '@/services/api'
 import { buildUploadTree, collectAllFolderPaths, forceWebkitRelativePath, getNormalizedUploadPathWithoutProject, getParentFolderRelPath, inferProjectNameFromPicked, mapPickedFilesToTarget, moveRelPathToFolder, normalizeSlashes, resolveSelectedTargetFolder, splitPath, type UploadTreeNode, uniqueFilesByRelPath } from '@/utils/upload'
+import { IconFolder, IconX, IconCheck, IconAlertTriangle, IconLoader } from '@/components/icons'
 
 interface Props {
   initialMetadata: {
     projectName: string
   }
   initialFiles?: File[]
+  /** 자동 감지된 파일 타입 정보 */
+  detectedTypes?: DetectTypesResponse | null
+  /** 타입 감지 중 여부 */
+  isDetecting?: boolean
 }
 
 const props = defineProps<Props>()
@@ -24,6 +30,28 @@ const emit = defineEmits<{
 const projectName = ref(props.initialMetadata.projectName || '')
 const files = ref<File[]>([...(props.initialFiles || [])])
 const sourceType = ref<SourceType>('java')
+
+// 자동 감지 결과 표시용
+const autoDetectedType = ref<SourceType | null>(null)
+const detectionConfidence = ref<string>('')
+
+// 자동 감지 결과가 오면 sourceType 자동 설정
+watch(() => props.detectedTypes, (detected) => {
+  if (detected?.summary) {
+    const suggested = detected.summary.suggestedTarget as SourceType
+    sourceType.value = suggested
+    autoDetectedType.value = suggested
+    
+    // 신뢰도 계산 (상위 타입 비율)
+    const total = detected.summary.total
+    const byType = detected.summary.byType
+    const topType = Object.entries(byType).sort((a, b) => b[1] - a[1])[0]
+    if (topType) {
+      const ratio = Math.round((topType[1] / total) * 100)
+      detectionConfidence.value = `${topType[0]} ${ratio}%`
+    }
+  }
+}, { immediate: true })
 
 const folderInput = ref<HTMLInputElement>()
 const fileInput = ref<HTMLInputElement>()
@@ -100,6 +128,35 @@ const validationError = computed(() => {
   if (!hasFiles.value) return '파일을 추가해주세요'
   return ''
 })
+
+// 감지된 타입 포맷팅 함수
+const formatDetectedTypes = (byType: Record<string, number>): string => {
+  const typeLabels: Record<string, string> = {
+    java: 'Java',
+    oracle_sp: 'Oracle SP',
+    oracle_ddl: 'Oracle DDL',
+    postgresql_sp: 'PostgreSQL SP',
+    postgresql_ddl: 'PostgreSQL DDL',
+    python: 'Python',
+    xml: 'XML',
+    sql_generic: 'SQL',
+    unknown: '기타'
+  }
+  
+  const entries = Object.entries(byType)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)  // 상위 3개만 표시
+    .map(([type, count]) => `${typeLabels[type] || type} ${count}개`)
+  
+  return entries.join(', ')
+}
+
+// isDetecting prop을 로컬에서 사용
+const isDetecting = computed(() => props.isDetecting ?? false)
+
+// detectedTypes prop을 로컬에서 사용
+const detectedTypes = computed(() => props.detectedTypes ?? null)
 
 watch(() => props.initialMetadata, (val) => {
   projectName.value = val.projectName || ''
@@ -359,8 +416,13 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
   <div class="modal-overlay" @click.self="emit('cancel')">
     <div class="modal">
       <div class="modal-header">
-        <h2 class="modal-title">📁 업로드 설정</h2>
-        <button class="close-btn" @click="emit('cancel')">✕</button>
+        <h2 class="modal-title">
+          <IconFolder :size="18" class="title-icon" />
+          업로드 설정
+        </h2>
+        <button class="close-btn" @click="emit('cancel')">
+          <IconX :size="18" />
+        </button>
       </div>
       
       <div class="modal-body">
@@ -376,10 +438,19 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
             />
           </div>
           <div class="source-type-group">
-            <label class="form-label form-label--compact">소스 타입 <span class="required">*</span></label>
+            <label class="form-label form-label--compact">
+              소스 타입 <span class="required">*</span>
+              <span v-if="isDetecting" class="detecting-badge">
+                <IconLoader :size="12" /> 감지중...
+              </span>
+              <span v-else-if="autoDetectedType" class="auto-detected-badge" :title="`자동 감지: ${detectionConfidence}`">
+                <IconCheck :size="12" /> 자동 감지됨
+              </span>
+            </label>
             <select 
               v-model="sourceType" 
               class="select select--compact"
+              :class="{ 'auto-detected': autoDetectedType && sourceType === autoDetectedType }"
             >
               <option v-for="option in sourceTypeOptions" :key="option.value" :value="option.value">
                 {{ option.label }}
@@ -443,17 +514,30 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
           <div class="file-summary" v-if="hasFiles">
             <div class="file-summary-row">
               <div class="file-summary-main">총 {{ totalFileCount }}개 파일</div>
-              <div class="file-summary-sub">· 수정 필요시, 원하는 폴더 선택 후 추가 (DDL은 ddl/ 아래로 배치)</div>
+              <!-- 감지 결과 표시 -->
+              <div v-if="isDetecting" class="file-summary-detecting">
+                <IconLoader :size="14" /> 파일 타입 분석 중...
+              </div>
+              <div v-else-if="detectedTypes?.summary" class="file-summary-detected">
+                <IconCheck :size="14" class="detected-icon" />
+                <span class="detected-types">
+                  {{ formatDetectedTypes(detectedTypes.summary.byType) }}
+                </span>
+              </div>
+              <div v-else class="file-summary-sub">· 수정 필요시, 원하는 폴더 선택 후 추가</div>
             </div>
           </div>
           <div class="validation-error" v-if="validationError && hasFiles">
-            <span class="warn-icon">⚠️</span>
+            <IconAlertTriangle :size="14" class="warn-icon" />
             <span class="warn-text">{{ validationError }}</span>
           </div>
         </div>
         <div class="spacer"></div>
         <button class="btn btn--secondary" @click="emit('cancel')">취소</button>
-        <button class="btn btn--primary" @click="handleConfirm" :disabled="!isValid">✓ 업로드</button>
+        <button class="btn btn--primary" @click="handleConfirm" :disabled="!isValid">
+          <IconCheck :size="14" />
+          업로드
+        </button>
       </div>
     </div>
   </div>
@@ -466,7 +550,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.6);
   z-index: 1000;
   animation: fadeIn var(--transition-fast);
 }
@@ -494,27 +578,14 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 }
 
 .modal-title {
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.close-btn {
-  width: 32px;
-  height: 32px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  font-size: 18px;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition: all var(--transition-fast);
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
   
-  &:hover {
-    background: var(--color-bg-tertiary);
-    color: var(--color-text-primary);
+  .title-icon {
+    color: var(--color-accent);
   }
 }
 
@@ -548,37 +619,73 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 
 .source-type-group {
   flex: 0 0 auto;
-  width: 140px;
+  width: 180px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   
+  .form-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  
+  .detecting-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--color-warning, #f59e0b);
+    font-weight: 500;
+  }
+  
+  .auto-detected-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    color: var(--color-success, #22c55e);
+    font-weight: 500;
+    cursor: help;
+  }
+  
   .select {
     font-size: 13px;
     padding: 8px 10px;
-    background: var(--color-bg-primary);
+    background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    color: var(--color-text-primary);
+    color: var(--color-text);
     cursor: pointer;
     transition: all var(--transition-fast);
     
+    &.auto-detected {
+      border-color: var(--color-success, #22c55e);
+      background: rgba(34, 197, 94, 0.08);
+    }
+    
     &:focus {
       outline: none;
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 2px rgba(34, 139, 230, 0.2);
     }
     
     &:hover {
-      border-color: var(--color-border-hover);
+      border-color: var(--color-text-muted);
     }
   }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .form-label--compact {
   font-size: 11px;
   font-weight: 500;
-  color: var(--color-text-secondary);
+  color: var(--color-text-light);
 }
 
 .select--compact {
@@ -605,7 +712,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 .panel-title {
   font-size: 12px;
   font-weight: 700;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
   padding: 0 4px;
 }
 
@@ -623,16 +730,16 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 
 .btn--ghost {
   background: transparent;
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  color: rgba(59, 130, 246, 0.85);
+  border: 1px solid rgba(34, 139, 230, 0.4);
+  color: var(--color-accent);
   cursor: pointer;
   border-radius: var(--radius-sm);
   line-height: 1;
   
   &:hover {
-    background: rgba(59, 130, 246, 0.06);
-    border-color: rgba(59, 130, 246, 0.45);
-    color: rgba(59, 130, 246, 0.95);
+    background: rgba(34, 139, 230, 0.1);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
 }
 }
 
@@ -655,7 +762,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 .form-label {
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--color-text-bright);
 }
 
 .modal-footer {
@@ -698,7 +805,7 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 
 .file-summary-main {
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--color-text);
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
@@ -706,28 +813,55 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 
 .file-summary-sub {
   font-size: 12px;
-  color: var(--color-text-muted);
+  color: var(--color-text-light);
   font-weight: 400;
   line-height: 1.2;
   white-space: nowrap;
 }
 
-.validation-error {
+.file-summary-detecting {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--color-danger);
+  color: var(--color-warning, #f59e0b);
+  font-weight: 500;
+}
+
+.file-summary-detected {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-success, #22c55e);
+  font-weight: 500;
+  
+  .detected-icon {
+    flex-shrink: 0;
+  }
+  
+  .detected-types {
+    color: var(--color-text-secondary, var(--color-text-light));
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.validation-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-error);
   line-height: 1.2;
   padding-left: 0;
 }
 
 .warn-icon {
-  width: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 16px;
+  flex-shrink: 0;
 }
 
 .warn-text {
@@ -743,14 +877,14 @@ const moveFileRelPath = (sourceRelPath: string, targetFolderRelPath: string) => 
 }
 
 .required {
-  color: var(--color-danger);
+  color: var(--color-error);
 }
 
 .input--error {
-  border-color: var(--color-danger) !important;
+  border-color: var(--color-error) !important;
   
   &:focus {
-    box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+    box-shadow: 0 0 0 2px rgba(250, 82, 82, 0.2);
   }
 }
 </style>

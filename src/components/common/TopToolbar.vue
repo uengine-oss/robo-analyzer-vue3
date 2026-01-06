@@ -9,6 +9,7 @@ import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
 import SettingsModal from './SettingsModal.vue'
+import { IconSearch, IconBell, IconSettings, IconFolder } from '@/components/icons'
 
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
@@ -59,7 +60,11 @@ const handleSearch = () => {
     <!-- 로고 영역 -->
     <div class="header-left">
       <button class="logo" @click="sessionStore.goHome()" title="홈으로 이동">
-        <span class="logo-icon">⚡</span>
+        <span class="logo-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+        </span>
         <span class="logo-text">Robo Analyzer</span>
       </button>
     </div>
@@ -69,7 +74,9 @@ const handleSearch = () => {
       <div class="search-container">
         <div class="search-type">
           All
-          <span class="search-chevron">▾</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="m6 9 6 6 6-6"/>
+          </svg>
         </div>
         <div class="search-divider"></div>
         <input
@@ -83,10 +90,7 @@ const handleSearch = () => {
           <kbd>⌘</kbd><kbd>K</kbd>
         </div>
         <button class="search-btn" @click="handleSearch">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="M21 21l-4.35-4.35"/>
-          </svg>
+          <IconSearch :size="16" />
         </button>
       </div>
     </div>
@@ -96,7 +100,7 @@ const handleSearch = () => {
       <!-- 프로젝트 상태 -->
       <div class="project-status" v-if="projectName || isProcessing">
         <div class="project-badge" v-if="projectName">
-          <span class="project-icon">📁</span>
+          <IconFolder :size="14" />
           <span class="project-name">{{ projectName }}</span>
         </div>
         
@@ -108,10 +112,7 @@ const handleSearch = () => {
       
       <!-- 알림 -->
       <button class="icon-btn" title="알림">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
+        <IconBell :size="20" />
       </button>
       
       <!-- 설정 -->
@@ -120,10 +121,7 @@ const handleSearch = () => {
         @click="showSettings = true"
         title="설정"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
+        <IconSettings :size="20" />
       </button>
       
       <!-- 사용자 프로필 -->
@@ -147,12 +145,11 @@ const handleSearch = () => {
 .top-header {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--spacing-lg);
   height: 56px;
-  padding: 0 20px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  padding: 0 var(--spacing-lg);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
 }
 
 // ============================================================================
@@ -167,27 +164,34 @@ const handleSearch = () => {
 .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-sm);
   background: none;
   border: none;
   cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 10px;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-md);
   transition: all 0.15s;
   
   &:hover {
-    background: #f3f4f6;
+    background: var(--color-bg-tertiary);
   }
   
   .logo-icon {
-    font-size: 22px;
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-event) 100%);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
   }
   
   .logo-text {
-    font-size: 16px;
-    font-weight: 700;
-    color: #1f2937;
-    letter-spacing: -0.5px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--color-text-bright);
+    letter-spacing: -0.3px;
   }
 }
 
@@ -207,16 +211,16 @@ const handleSearch = () => {
   align-items: center;
   width: 100%;
   height: 40px;
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: all 0.15s;
   
   &:focus-within {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    background: #ffffff;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
+    background: var(--color-bg-secondary);
   }
 }
 
@@ -227,24 +231,19 @@ const handleSearch = () => {
   padding: 0 12px;
   font-size: 13px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-light);
   cursor: pointer;
   white-space: nowrap;
   
   &:hover {
-    color: #374151;
+    color: var(--color-text);
   }
-}
-
-.search-chevron {
-  font-size: 10px;
-  color: #94a3b8;
 }
 
 .search-divider {
   width: 1px;
   height: 20px;
-  background: #e5e7eb;
+  background: var(--color-border);
 }
 
 .search-input {
@@ -252,13 +251,13 @@ const handleSearch = () => {
   height: 100%;
   padding: 0 12px;
   font-size: 13px;
-  color: #1f2937;
+  color: var(--color-text-bright);
   background: transparent;
   border: none;
   outline: none;
   
   &::placeholder {
-    color: #9ca3af;
+    color: var(--color-text-muted);
   }
 }
 
@@ -277,10 +276,10 @@ const handleSearch = () => {
     padding: 0 4px;
     font-size: 11px;
     font-family: inherit;
-    color: #64748b;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
+    color: var(--color-text-light);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
   }
 }
 
@@ -292,11 +291,12 @@ const handleSearch = () => {
   height: 100%;
   background: transparent;
   border: none;
-  color: #64748b;
+  color: var(--color-text-light);
   cursor: pointer;
+  transition: color 0.15s;
   
   &:hover {
-    color: #3b82f6;
+    color: var(--color-accent);
   }
 }
 
@@ -319,19 +319,16 @@ const handleSearch = () => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  background: #f3f4f6;
-  border-radius: 6px;
-  border: 1px solid #e5e7eb;
-  
-  .project-icon {
-    font-size: 12px;
-  }
+  padding: 6px 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-light);
   
   .project-name {
     font-size: 12px;
     font-weight: 500;
-    color: #374151;
+    color: var(--color-text);
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -343,22 +340,22 @@ const handleSearch = () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  background: #eff6ff;
-  border-radius: 6px;
+  padding: 6px 12px;
+  background: rgba(34, 139, 230, 0.15);
+  border-radius: var(--radius-md);
   
   .spinner {
     width: 12px;
     height: 12px;
-    border: 2px solid #dbeafe;
-    border-top-color: #3b82f6;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
   
   .step-text {
     font-size: 11px;
-    color: #3b82f6;
+    color: var(--color-accent);
     max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -370,25 +367,6 @@ const handleSearch = () => {
   to { transform: rotate(360deg); }
 }
 
-.icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  background: transparent;
-  border: none;
-  border-radius: 8px;
-  color: #64748b;
-  cursor: pointer;
-  transition: all 0.15s;
-  
-  &:hover {
-    background: #f3f4f6;
-    color: #374151;
-  }
-}
-
 .user-profile {
   cursor: pointer;
   
@@ -398,7 +376,7 @@ const handleSearch = () => {
     justify-content: center;
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+    background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-secondary) 100%);
     border-radius: 50%;
     color: white;
     font-size: 14px;
@@ -411,5 +389,3 @@ const handleSearch = () => {
   }
 }
 </style>
-
-

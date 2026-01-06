@@ -1,17 +1,23 @@
 <template>
   <div class="er-diagram">
     <div class="toolbar">
-      <h3>ER Diagram</h3>
+      <h3>
+        <IconLayers :size="16" />
+        ER Diagram
+      </h3>
       <div class="toolbar-controls">
         <div class="search-controls">
-          <input 
-            v-model="searchQuery"
-            @input="handleSearch"
-            type="text" 
-            placeholder="테이블 검색..."
-            class="search-input"
-          />
-          <button @click="clearSearch" class="btn-clear">지우기</button>
+          <div class="search-wrapper">
+            <IconSearch :size="14" class="search-icon" />
+            <input 
+              v-model="searchQuery"
+              @input="handleSearch"
+              type="text" 
+              placeholder="테이블 검색..."
+              class="search-input"
+            />
+          </div>
+          <button @click="clearSearch" class="btn btn--danger btn--sm">지우기</button>
         </div>
         <div class="filter-controls">
           <label class="filter-label">
@@ -24,7 +30,10 @@
           </label>
           <span class="table-count">{{ filteredTables.length }}개 테이블</span>
         </div>
-        <button @click="refreshDiagram" class="btn-refresh">새로고침</button>
+        <button @click="refreshDiagram" class="btn btn--primary btn--sm">
+          <IconRefresh :size="14" />
+          새로고침
+        </button>
       </div>
     </div>
     <div ref="diagramEl" class="diagram-container"></div>
@@ -35,6 +44,7 @@
 import mermaid from 'mermaid'
 import { computed, onMounted, ref, watch } from 'vue'
 import type { Text2SqlTableInfo, Text2SqlColumnInfo } from '@/types'
+import { IconLayers, IconSearch, IconRefresh } from '@/components/icons'
 
 const props = defineProps<{
   tables: Text2SqlTableInfo[]
@@ -67,7 +77,7 @@ const filteredTables = computed(() => {
 onMounted(() => {
   mermaid.initialize({ 
     startOnLoad: false,
-    theme: 'default',
+    theme: 'dark',
     er: {
       layoutDirection: 'TB'
     }
@@ -95,7 +105,7 @@ async function renderDiagram() {
     diagramEl.value.innerHTML = svg
   } catch (err) {
     console.error('Mermaid render error:', err)
-    diagramEl.value.innerHTML = `<pre style="color: red; padding: 1rem;">${err}</pre>`
+    diagramEl.value.innerHTML = `<pre style="color: var(--color-error); padding: 1rem;">${err}</pre>`
   }
 }
 
@@ -225,103 +235,115 @@ function updateDiagram() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .er-diagram {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  padding: 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
 }
 
 .toolbar {
-  margin-bottom: 1rem;
+  margin-bottom: 16px;
 }
 
 .toolbar h3 {
-  margin: 0 0 0.75rem 0;
-  color: #333;
-  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px 0;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .toolbar-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: 12px;
   align-items: center;
 }
 
 .search-controls {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: center;
   flex: 1;
-  max-width: 250px;
+  max-width: 300px;
+}
+
+.search-wrapper {
+  position: relative;
+  flex: 1;
+  
+  .search-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-text-muted);
+    pointer-events: none;
+  }
 }
 
 .search-input {
-  flex: 1;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-
-.btn-clear {
-  padding: 0.4rem 0.75rem;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.btn-clear:hover {
-  background: #d32f2f;
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: all 0.15s;
+  
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
+  }
 }
 
 .filter-controls {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .filter-label {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  color: #666;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-light);
   cursor: pointer;
+  
+  input[type="checkbox"] {
+    accent-color: var(--color-accent);
+    width: 14px;
+    height: 14px;
+  }
 }
 
 .table-count {
-  font-size: 0.85rem;
-  color: #666;
+  font-size: 12px;
+  color: var(--color-text-muted);
   font-weight: 600;
-}
-
-.btn-refresh {
-  padding: 0.4rem 0.75rem;
-  background: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
-}
-
-.btn-refresh:hover {
-  background: #45a049;
+  padding: 4px 10px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-sm);
 }
 
 .diagram-container {
   overflow-x: auto;
   min-height: 300px;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  padding: 0.75rem;
-  background: #fafafa;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--color-bg-tertiary);
 }
 
 .diagram-container :deep(svg) {
@@ -334,8 +356,8 @@ function updateDiagram() {
   align-items: center;
   justify-content: center;
   height: 150px;
-  color: #666;
+  color: var(--color-text-light);
   font-style: italic;
+  font-size: 14px;
 }
 </style>
-

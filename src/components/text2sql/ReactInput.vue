@@ -9,13 +9,13 @@
         :disabled="loading"
       ></textarea>
       <div class="action-buttons">
-        <button v-if="!loading" class="btn-primary" @click="submitQuestion" :disabled="!canSubmitQuestion">
-          <span class="btn-icon">🚀</span>
-          <span class="btn-text">실행</span>
+        <button v-if="!loading" class="btn btn--primary" @click="submitQuestion" :disabled="!canSubmitQuestion">
+          <IconPlay :size="16" />
+          <span>실행</span>
         </button>
-        <button v-if="loading" class="btn-secondary" type="button" @click="emit('cancel')">
-          <span class="btn-icon">✕</span>
-          <span class="btn-text">중단</span>
+        <button v-if="loading" class="btn btn--secondary" type="button" @click="emit('cancel')">
+          <IconX :size="16" />
+          <span>중단</span>
         </button>
       </div>
     </div>
@@ -23,9 +23,9 @@
     <!-- 고급 설정 -->
     <div v-if="!waitingForUser" class="settings-section">
       <button class="settings-toggle" type="button" @click="showSettings = !showSettings">
-        <span class="toggle-icon">⚙️</span>
-        <span class="toggle-text">고급 설정</span>
-        <span class="toggle-arrow" :class="{ expanded: showSettings }">▼</span>
+        <IconSettings :size="14" />
+        <span>고급 설정</span>
+        <IconChevronDown :size="14" :class="['toggle-arrow', { expanded: showSettings }]" />
       </button>
       <transition name="slide">
         <div v-if="showSettings" class="settings-panel">
@@ -69,8 +69,11 @@
 
     <div v-else class="follow-up-wrapper">
       <div class="follow-up-question">
-        <strong>에이전트 질문:</strong>
-        <p>{{ questionToUser }}</p>
+        <IconAlertTriangle :size="16" />
+        <div class="follow-up-content">
+          <strong>에이전트 질문:</strong>
+          <p>{{ questionToUser }}</p>
+        </div>
       </div>
       <div class="follow-up-container">
         <textarea 
@@ -81,13 +84,13 @@
           :disabled="loading"
         ></textarea>
         <div class="action-buttons">
-          <button class="btn-secondary" type="button" @click="emit('cancel')">
-            <span class="btn-icon">✕</span>
-            <span class="btn-text">중단</span>
+          <button class="btn btn--secondary" type="button" @click="emit('cancel')">
+            <IconX :size="16" />
+            <span>중단</span>
           </button>
-          <button class="btn-primary" @click="submitUserResponse" :disabled="!canSubmitUserResponse">
-            <span class="btn-icon">📤</span>
-            <span class="btn-text">{{ loading ? '전송 중...' : '답변 보내기' }}</span>
+          <button class="btn btn--primary" @click="submitUserResponse" :disabled="!canSubmitUserResponse">
+            <IconUpload :size="16" />
+            <span>{{ loading ? '전송 중...' : '답변 보내기' }}</span>
           </button>
         </div>
       </div>
@@ -97,6 +100,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { IconPlay, IconX, IconSettings, IconChevronDown, IconAlertTriangle, IconUpload } from '@/components/icons'
 
 export interface ReactStartOptions {
   maxToolCalls: number
@@ -160,11 +164,11 @@ function submitUserResponse() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .react-input {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
   width: 100%;
 }
 
@@ -172,211 +176,183 @@ function submitUserResponse() {
 .follow-up-container {
   display: flex;
   flex-direction: row;
-  gap: 0.75rem;
+  gap: 12px;
   align-items: stretch;
 }
 
 .follow-up-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 textarea {
   flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-family: inherit;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-family: var(--font-main);
   resize: none;
   min-height: 80px;
-  transition: all 0.2s;
-  background: #fafbfc;
-}
-
-textarea:focus {
-  outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-  background: white;
-}
-
-textarea:disabled {
-  background: #f5f5f5;
-  cursor: not-allowed;
-  opacity: 0.7;
+  transition: all 0.15s;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
+    background: var(--color-bg-tertiary);
+  }
+  
+  &:disabled {
+    background: var(--color-bg-tertiary);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
 }
 
 .action-buttons {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  min-width: 100px;
-}
-
-.btn-primary {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  padding: 0.75rem 0.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.btn-primary .btn-icon {
-  font-size: 1.2rem;
-}
-
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.btn-primary:disabled {
-  background: linear-gradient(135deg, #cbd5e0 0%, #a0aec0 100%);
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.btn-secondary {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  padding: 0.75rem 0.5rem;
-  background: white;
-  color: #4a5568;
-  border: 2px solid #e5e7eb;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: #f7fafc;
-  border-color: #cbd5e0;
+  gap: 8px;
+  min-width: 120px;
+  
+  .btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
 }
 
 .follow-up-question {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border-left: 3px solid #f59e0b;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  color: #78350f;
-}
-
-.follow-up-question strong {
-  font-size: 0.9rem;
-}
-
-.follow-up-question p {
-  margin: 0.5rem 0 0 0;
-  white-space: pre-wrap;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(251, 191, 36, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-left: 3px solid var(--color-warning);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  color: var(--color-warning);
+  
+  .follow-up-content {
+    flex: 1;
+    
+    strong {
+      font-size: 13px;
+      color: var(--color-text);
+    }
+    
+    p {
+      margin: 8px 0 0 0;
+      white-space: pre-wrap;
+      font-size: 14px;
+      color: var(--color-text);
+    }
+  }
 }
 
 .settings-section {
-  margin-top: 0.25rem;
+  margin-top: 4px;
 }
 
 .settings-toggle {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
+  gap: 8px;
+  padding: 8px 16px;
   background: transparent;
-  border: 1px dashed #cbd5e0;
-  border-radius: 6px;
-  color: #718096;
-  font-size: 0.8rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-light);
+  font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s;
   width: 100%;
   justify-content: center;
-}
-
-.settings-toggle:hover {
-  background: #f7fafc;
-  border-color: #a0aec0;
-}
-
-.toggle-arrow {
-  font-size: 0.65rem;
-  transition: transform 0.2s;
-  margin-left: auto;
-}
-
-.toggle-arrow.expanded {
-  transform: rotate(180deg);
+  
+  &:hover {
+    background: var(--color-bg-tertiary);
+    border-color: var(--color-text-muted);
+  }
+  
+  .toggle-arrow {
+    margin-left: auto;
+    transition: transform 0.2s;
+    
+    &.expanded {
+      transform: rotate(180deg);
+    }
+  }
 }
 
 .settings-panel {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-  padding: 0.75rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .setting-item {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 8px;
 }
 
 .setting-item label {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 2px;
 }
 
 .setting-label {
-  font-size: 0.8rem;
+  font-size: 13px;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--color-text);
 }
 
 .setting-hint {
-  font-size: 0.7rem;
-  color: #718096;
+  font-size: 11px;
+  color: var(--color-text-light);
 }
 
 .setting-input-group {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .setting-input-group input {
   flex: 1;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  max-width: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  max-width: 100px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
 }
 
 .setting-unit {
-  font-size: 0.8rem;
-  color: #718096;
+  font-size: 13px;
+  color: var(--color-text-light);
 }
 
 .slide-enter-active,
@@ -397,4 +373,3 @@ textarea:disabled {
   max-height: 200px;
 }
 </style>
-

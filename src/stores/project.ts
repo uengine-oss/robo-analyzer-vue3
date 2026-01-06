@@ -105,6 +105,8 @@ export const useProjectStore = defineStore('project', () => {
   
   const isProcessing = ref(false)
   const currentStep = ref('')
+  const totalSteps = ref(4) // 업로드, 파싱, 분석, 인제스천
+  const completedSteps = ref(0)
   
   // ==========================================================================
   // 상태 - 통합 콘솔 메시지
@@ -232,7 +234,7 @@ export const useProjectStore = defineStore('project', () => {
    * 파일 업로드 (내부용)
    */
   async function doUpload(files: File[], meta: BackendRequestMetadata) {
-    currentStep.value = '파일 업로드 중...'
+    currentStep.value = '[1단계] 파일 업로드 중...'
     addMessage('message', `🚀 파일 업로드 시작 (${files.length}개 파일)`)
     
     const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
@@ -242,6 +244,7 @@ export const useProjectStore = defineStore('project', () => {
     uploadedDdlFiles.value = result.ddlFiles
     
     addMessage('message', `✅ 업로드 완료: 소스 ${result.files.length}개, DDL ${result.ddlFiles.length}개`)
+    completedSteps.value = 1
     return result
   }
   
@@ -249,7 +252,7 @@ export const useProjectStore = defineStore('project', () => {
    * 파싱 요청 (내부용)
    */
   async function doParse() {
-    currentStep.value = '파싱 중...'
+    currentStep.value = '[2단계] 파싱 중...'
     addMessage('message', '🔧 파싱 시작...')
     
     await antlrApi.parseStream(
@@ -263,13 +266,14 @@ export const useProjectStore = defineStore('project', () => {
     )
     
     addMessage('message', '✅ 파싱 완료')
+    completedSteps.value = 2
   }
   
   /**
    * 분석 실행 (내부용)
    */
   async function doAnalyze(): Promise<void> {
-    currentStep.value = '분석 진행 중...'
+    currentStep.value = '[3단계] 🧠 AI 분석 진행 중...'
     clearGraphData()
     addMessage('message', '🔍 분석 시작...')
     
@@ -289,13 +293,14 @@ export const useProjectStore = defineStore('project', () => {
     )
     
     addMessage('message', '✅ 분석 완료')
+    completedSteps.value = 3
   }
   
   /**
    * 인제스천 실행 (내부용)
    */
   async function doIngest(): Promise<void> {
-    currentStep.value = '인제스천 중...'
+    currentStep.value = '[4단계] 인제스천 중...'
     addMessage('message', '📦 스키마 인제스천 시작...')
     
     const result = await ingestApi.ingest({
@@ -305,6 +310,7 @@ export const useProjectStore = defineStore('project', () => {
     })
     
     addMessage('message', `✅ 인제스천 완료: 테이블 ${result.tables_loaded}개, 컬럼 ${result.columns_loaded}개, FK ${result.fks_loaded}개`)
+    completedSteps.value = 4
   }
   
   // ==========================================================================
@@ -312,10 +318,51 @@ export const useProjectStore = defineStore('project', () => {
   // ==========================================================================
   
   /**
+   * 기존 데이터 존재 여부 확인
+   */
+  async function checkExistingData(): Promise<{ hasData: boolean; nodeCount: number }> {
+    try {
+      return await roboApi.checkData(sessionStore.getHeaders())
+    } catch (error) {
+      console.warn('기존 데이터 확인 실패:', error)
+      return { hasData: false, nodeCount: 0 }
+    }
+  }
+  
+  /**
    * 파일 업로드 후 파싱 → 분석 → 인제스천 순차 실행
+   * 기존 데이터가 있으면 삭제 여부를 확인합니다.
    */
   async function uploadFiles(files: File[], meta: BackendRequestMetadata) {
+    // 업로드 전에 기존 데이터 확인
+    addMessage('message', '🔍 기존 데이터 확인 중...')
+    const { hasData, nodeCount } = await checkExistingData()
+    
+    if (hasData) {
+      const confirmed = window.confirm(
+        `Neo4j에 기존 데이터가 ${nodeCount}개 있습니다.\n` +
+        `새로 업로드하면 기존 데이터가 삭제됩니다.\n\n` +
+        `계속하시겠습니까?`
+      )
+      
+      if (!confirmed) {
+        addMessage('message', '⏹️ 업로드가 취소되었습니다.')
+        return
+      }
+      
+      // 기존 데이터 삭제
+      addMessage('message', '🗑️ 기존 데이터 삭제 중...')
+      try {
+        await roboApi.delete(sessionStore.getHeaders())
+        addMessage('message', '✅ 기존 데이터 삭제 완료')
+      } catch (error) {
+        addMessage('error', `❌ 기존 데이터 삭제 실패: ${error}`)
+        throw error
+      }
+    }
+    
     isProcessing.value = true
+    completedSteps.value = 0
     clearMessages()
     
     try {
@@ -396,6 +443,8 @@ export const useProjectStore = defineStore('project', () => {
     graphData,
     isProcessing,
     currentStep,
+    totalSteps,
+    completedSteps,
     consoleMessages,
     
     // Computed (하위호환성: uploadMessages로도 접근 가능)

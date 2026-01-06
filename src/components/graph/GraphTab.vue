@@ -486,7 +486,7 @@ watch(hasGraph, (has, prev) => {
   display: flex;
   position: relative;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .content-area {
@@ -498,7 +498,7 @@ watch(hasGraph, (has, prev) => {
 .view-container {
   position: absolute;
   inset: 0;
-  background: #ffffff;
+  background: #1e1e2e;
   overflow: visible;
 }
 
@@ -530,7 +530,7 @@ watch(hasGraph, (has, prev) => {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #6b7280;
+  color: var(--color-text-light);
   
   .empty-icon {
     font-size: 48px;
@@ -540,14 +540,14 @@ watch(hasGraph, (has, prev) => {
   
   h3 {
     font-size: 16px;
-    color: #374151;
+    color: var(--color-text-bright);
     margin-bottom: 6px;
     font-weight: 600;
   }
   
   p {
     font-size: 13px;
-    color: #9ca3af;
+    color: var(--color-text-muted);
   }
 }
 
@@ -568,11 +568,11 @@ watch(hasGraph, (has, prev) => {
 
 .view-switcher {
   display: flex;
-  background: #f8fafc;
-  border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--color-border);
   gap: 4px;
   padding: 4px;
   
@@ -582,21 +582,21 @@ watch(hasGraph, (has, prev) => {
     font-weight: 500;
     background: transparent;
     border: none;
-    color: #94a3b8;
+    color: var(--color-text-light);
     cursor: pointer;
     transition: all 0.2s ease;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     
     &:hover:not(.disabled) {
-      background: #f1f5f9;
-      color: #64748b;
+      background: var(--color-bg-tertiary);
+      color: var(--color-text);
     }
     
     &.active {
-      background: #ffffff;
-      color: #0f172a;
+      background: var(--color-bg-tertiary);
+      color: var(--color-text-bright);
       font-weight: 600;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      box-shadow: var(--shadow-sm);
     }
     
     &.disabled {
@@ -613,20 +613,20 @@ watch(hasGraph, (has, prev) => {
   gap: 6px;
   padding: 6px 10px;
   height: 32px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--color-text-light);
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;
   
   &:hover {
-    background: #f8fafc;
-    border-color: #cbd5e1;
-    color: #475569;
+    background: var(--color-bg-tertiary);
+    border-color: var(--color-text-muted);
+    color: var(--color-text);
   }
 }
 
@@ -642,21 +642,21 @@ watch(hasGraph, (has, prev) => {
     width: 200px;
     height: 32px;
     padding: 0 10px;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
     font-size: 12px;
-    color: #1f2937;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    color: var(--color-text-bright);
+    box-shadow: var(--shadow-md);
     
     &:focus {
       outline: none;
-      border-color: #3b82f6;
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
     }
     
     &::placeholder {
-      color: #9ca3af;
+      color: var(--color-text-muted);
     }
   }
   
@@ -666,10 +666,10 @@ watch(hasGraph, (has, prev) => {
     left: 0;
     width: 320px;
     margin-top: 4px;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-lg);
     max-height: 280px;
     overflow-y: auto;
     
@@ -683,24 +683,24 @@ watch(hasGraph, (has, prev) => {
       border: none;
       text-align: left;
       font-size: 12px;
-      color: #374151;
+      color: var(--color-text);
       cursor: pointer;
-      border-bottom: 1px solid #f3f4f6;
+      border-bottom: 1px solid var(--color-border);
       
       &:last-child {
         border-bottom: none;
       }
       
       &:hover {
-        background: #f9fafb;
+        background: var(--color-bg-tertiary);
       }
       
       .tag {
         font-size: 10px;
         padding: 2px 6px;
-        background: #3b82f6;
+        background: var(--color-accent);
         color: white;
-        border-radius: 4px;
+        border-radius: var(--radius-sm);
         font-weight: 600;
         flex-shrink: 0;
         margin-top: 2px;
@@ -715,12 +715,12 @@ watch(hasGraph, (has, prev) => {
         
         .node-name {
           font-weight: 500;
-          color: #1f2937;
+          color: var(--color-text-bright);
         }
         
         .node-dir {
           font-size: 10px;
-          color: #6b7280;
+          color: var(--color-text-light);
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
@@ -747,9 +747,9 @@ watch(hasGraph, (has, prev) => {
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
-    background: #3b82f6;
+    background: var(--color-accent);
     color: white;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 11px;
     font-weight: 500;
     
@@ -774,17 +774,17 @@ watch(hasGraph, (has, prev) => {
   
   .clear-btn {
     padding: 4px 8px;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
     font-size: 10px;
-    color: #6b7280;
+    color: var(--color-text-light);
     cursor: pointer;
     
     &:hover {
-      background: #fee2e2;
-      border-color: #fecaca;
-      color: #dc2626;
+      background: rgba(250, 82, 82, 0.15);
+      border-color: var(--color-error);
+      color: var(--color-error);
     }
   }
 }
@@ -798,29 +798,29 @@ watch(hasGraph, (has, prev) => {
   top: 8px;
   width: 32px;
   height: 32px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   font-size: 16px;
   font-weight: 600;
-  color: #475569;
+  color: var(--color-text-light);
   cursor: pointer;
   z-index: 100;
   transition: all 0.15s;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
   display: flex;
   align-items: center;
   justify-content: center;
   
   &.right {
     right: 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   
   &:hover {
-    background: #f1f5f9;
-    color: #1e293b;
-    border-color: #94a3b8;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-bright);
+    border-color: var(--color-text-light);
+    box-shadow: var(--shadow-lg);
   }
 }
 
@@ -834,11 +834,11 @@ watch(hasGraph, (has, prev) => {
   z-index: 10;
   
   &:hover {
-    background: #cbd5e1;
+    background: var(--color-border);
   }
   
   &.resizing {
-    background: #94a3b8;
+    background: var(--color-text-light);
   }
 }
 
@@ -852,13 +852,13 @@ watch(hasGraph, (has, prev) => {
   bottom: 0;
   height: 100%;
   min-height: 200px;
-  background: #ffffff;
-  border-left: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   z-index: 90;
-  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-lg);
   
   &.right {
     right: 0;
@@ -879,14 +879,14 @@ watch(hasGraph, (has, prev) => {
     justify-content: space-between;
     align-items: center;
     padding: 10px 12px;
-    background: #f1f5f9;
-    border-bottom: 1px solid #cbd5e1;
+    background: var(--color-bg-tertiary);
+    border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
     
     span {
       font-size: 12px;
       font-weight: 600;
-      color: #374151;
+      color: var(--color-text-bright);
     }
     
     button {
@@ -894,9 +894,9 @@ watch(hasGraph, (has, prev) => {
       height: 24px;
       background: transparent;
       border: none;
-      color: #64748b;
+      color: var(--color-text-light);
       cursor: pointer;
-      border-radius: 4px;
+      border-radius: var(--radius-sm);
       font-size: 16px;
       font-weight: 600;
       display: flex;
@@ -904,8 +904,8 @@ watch(hasGraph, (has, prev) => {
       justify-content: center;
       
       &:hover {
-        background: #e5e7eb;
-        color: #1e293b;
+        background: var(--color-bg-elevated);
+        color: var(--color-text-bright);
       }
     }
   }
@@ -923,16 +923,16 @@ watch(hasGraph, (has, prev) => {
     }
     
     &::-webkit-scrollbar-track {
-      background: #f1f5f9;
+      background: var(--color-bg-tertiary);
       border-radius: 3px;
     }
     
     &::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
+      background: var(--color-border);
       border-radius: 3px;
       
       &:hover {
-        background: #94a3b8;
+        background: var(--color-text-light);
       }
     }
   }
@@ -951,20 +951,20 @@ watch(hasGraph, (has, prev) => {
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
   border-radius: 16px;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--color-text);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
   z-index: 100;
   transition: all 0.15s;
   
   &:hover {
-    background: #f9fafb;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    background: var(--color-bg-tertiary);
+    box-shadow: var(--shadow-lg);
   }
   
   
@@ -972,25 +972,25 @@ watch(hasGraph, (has, prev) => {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #9ca3af;
+    background: var(--color-text-muted);
   }
   
   &.processing .status-dot {
-    background: #3b82f6;
+    background: var(--color-accent);
     animation: pulse 1.5s infinite;
   }
   
   &.error .status-dot {
-    background: #ef4444;
+    background: var(--color-error);
   }
   
   &.success .status-dot {
-    background: #22c55e;
+    background: var(--color-success);
   }
   
   .count {
     padding: 2px 6px;
-    background: #3b82f6;
+    background: var(--color-accent);
     color: white;
     border-radius: 8px;
     font-size: 10px;
@@ -999,7 +999,7 @@ watch(hasGraph, (has, prev) => {
   
   .arrow {
     font-size: 10px;
-    color: #9ca3af;
+    color: var(--color-text-muted);
   }
 }
 
@@ -1017,10 +1017,10 @@ watch(hasGraph, (has, prev) => {
   bottom: 0;
   left: 0;
   right: 0;
-  background: #f8fafc;
-  border-top: 2px solid #cbd5e1;
+  background: var(--color-bg-secondary);
+  border-top: 2px solid var(--color-border);
   z-index: 90;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   
@@ -1029,15 +1029,15 @@ watch(hasGraph, (has, prev) => {
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    background: #ffffff;
-    border-bottom: 1px solid #e5e7eb;
+    background: var(--color-bg-tertiary);
+    border-bottom: 1px solid var(--color-border);
     font-size: 12px;
     font-weight: 600;
-    color: #374151;
+    color: var(--color-text-bright);
     
     .console-count {
       padding: 2px 6px;
-      background: #3b82f6;
+      background: var(--color-accent);
       color: white;
       border-radius: 8px;
       font-size: 10px;
@@ -1056,26 +1056,26 @@ watch(hasGraph, (has, prev) => {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    color: #64748b;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-light);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     z-index: 10;
     transition: all 0.15s;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--shadow-md);
     
     .arrow {
       font-size: 12px;
     }
     
     &:hover {
-      background: #f1f5f9;
-      color: #1e293b;
-      border-color: #94a3b8;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+      background: var(--color-bg-tertiary);
+      color: var(--color-text-bright);
+      border-color: var(--color-text-light);
+      box-shadow: var(--shadow-lg);
     }
   }
   
@@ -1095,34 +1095,34 @@ watch(hasGraph, (has, prev) => {
     overflow-y: auto;
     padding: 8px 12px;
     margin-top: 4px;
-    font-family: 'Consolas', monospace;
+    font-family: var(--font-mono);
     font-size: 11px;
-    background: #ffffff;
+    background: var(--color-bg);
     margin-left: 4px;
     margin-right: 4px;
     margin-bottom: 4px;
-    border-radius: 4px;
-    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
   }
   
   .log-item {
     display: flex;
     gap: 10px;
     padding: 3px 0;
-    color: #374151;
+    color: var(--color-text);
     
     &.error {
-      color: #dc2626;
+      color: var(--color-error);
     }
     
     .time {
-      color: #9ca3af;
+      color: var(--color-text-muted);
       flex-shrink: 0;
     }
   }
   
   .log-empty {
-    color: #9ca3af;
+    color: var(--color-text-muted);
     text-align: center;
     padding: 16px;
   }

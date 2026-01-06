@@ -292,8 +292,25 @@ export interface ReactRequest {
   prefer_language?: string
 }
 
+/** ReAct Phase 데이터 */
+export interface ReactPhaseData {
+  reasoning?: string
+  partial_sql?: string
+  sql_completeness?: ReactSQLCompleteness
+  tool_name?: string
+  tool_parameters?: Record<string, unknown>
+  tool_result_preview?: string
+}
+
 /** ReAct 스트림 이벤트 */
 export type ReactStreamEvent =
+  | {
+      event: 'phase'
+      phase: 'thinking' | 'reasoning' | 'acting' | 'observing'
+      iteration: number
+      data: ReactPhaseData
+      state: Record<string, unknown>
+    }
   | {
       event: 'step'
       step: ReactStepModel
@@ -316,3 +333,6 @@ export type ReactStreamEvent =
 
 /** ReAct 상태 */
 export type ReactStatus = 'idle' | 'running' | 'needs_user_input' | 'completed' | 'error'
+
+/** ReAct Phase 상태 */
+export type ReactPhase = 'idle' | 'thinking' | 'reasoning' | 'acting' | 'observing'

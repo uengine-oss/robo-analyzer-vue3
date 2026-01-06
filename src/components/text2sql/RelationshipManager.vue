@@ -1,8 +1,14 @@
 <template>
   <div class="relationship-manager">
     <div class="manager-header">
-      <h3>🔗 릴레이션 관리</h3>
-      <button @click="loadUserRelationships" class="btn-refresh">새로고침</button>
+      <h3>
+        <IconLayers :size="16" />
+        릴레이션 관리
+      </h3>
+      <button @click="loadUserRelationships" class="btn btn--primary btn--sm">
+        <IconRefresh :size="14" />
+        새로고침
+      </button>
     </div>
     
     <!-- 기존 릴레이션 목록 -->
@@ -19,11 +25,14 @@
         >
           <div class="relationship-info">
             <span class="from">{{ rel.from_table }}.{{ rel.from_column }}</span>
-            <span class="arrow">→</span>
+            <IconChevronRight :size="14" class="arrow" />
             <span class="to">{{ rel.to_table }}.{{ rel.to_column }}</span>
             <span v-if="rel.description" class="description">({{ rel.description }})</span>
           </div>
-          <button @click="removeRelationship(rel)" class="remove-btn">삭제</button>
+          <button @click="removeRelationship(rel)" class="btn btn--danger btn--sm">
+            <IconTrash :size="12" />
+            삭제
+          </button>
         </div>
       </div>
     </div>
@@ -74,7 +83,7 @@
           </div>
         </div>
         
-        <div class="form-group">
+        <div class="form-group full-width">
           <label>설명 (선택사항):</label>
           <input 
             v-model="newRelationship.description"
@@ -83,7 +92,8 @@
           />
         </div>
         
-        <button type="submit" class="add-btn" :disabled="!isRelationshipFormValid">
+        <button type="submit" class="btn btn--success" :disabled="!isRelationshipFormValid">
+          <IconPlus :size="14" />
           릴레이션 추가
         </button>
       </form>
@@ -96,10 +106,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { text2sqlApi } from '@/services/api'
 import { useText2SqlSchemaStore } from '@/stores/text2sql'
 import type { Text2SqlTableInfo } from '@/types'
+import { IconLayers, IconRefresh, IconChevronRight, IconTrash, IconPlus } from '@/components/icons'
 
 const schemaStore = useText2SqlSchemaStore()
 
-const props = defineProps<{
+defineProps<{
   tables: Text2SqlTableInfo[]
 }>()
 
@@ -206,155 +217,150 @@ onMounted(() => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .relationship-manager {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  padding: 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
 }
 
 .manager-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
+  margin-bottom: 16px;
 }
 
 .manager-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
-  color: #333;
-  font-size: 1rem;
-}
-
-.btn-refresh {
-  padding: 0.4rem 0.75rem;
-  background: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
+  color: var(--color-text-bright);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .existing-relationships {
-  margin-bottom: 1rem;
+  margin-bottom: 16px;
 }
 
 .existing-relationships h4 {
-  margin: 0 0 0.5rem 0;
-  color: #333;
-  font-size: 0.9rem;
+  margin: 0 0 12px 0;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .relationship-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  margin-bottom: 0.35rem;
-  font-size: 0.85rem;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  font-size: 13px;
+  background: var(--color-bg-tertiary);
+  transition: all 0.15s;
+  
+  &:hover {
+    background: var(--color-bg-elevated);
+  }
 }
 
 .relationship-info {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .from, .to {
   font-weight: 600;
-  color: #333;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .arrow {
-  color: #666;
+  color: var(--color-text-muted);
 }
 
 .description {
-  color: #666;
-  font-size: 0.8rem;
-}
-
-.remove-btn {
-  padding: 0.2rem 0.5rem;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.75rem;
+  color: var(--color-text-light);
+  font-size: 12px;
 }
 
 .add-relationship {
-  border-top: 1px solid #e0e0e0;
-  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
 }
 
 .add-relationship h4 {
-  margin: 0 0 0.75rem 0;
-  color: #333;
-  font-size: 0.9rem;
+  margin: 0 0 12px 0;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .relationship-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .form-row {
   display: flex;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .form-group {
   flex: 1;
+  
+  &.full-width {
+    flex: 100%;
+  }
 }
 
 .form-group label {
   display: block;
-  margin-bottom: 0.25rem;
+  margin-bottom: 6px;
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 12px;
+  color: var(--color-text-light);
 }
 
 .form-group select,
 .form-group input {
   width: 100%;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-
-.add-btn {
-  padding: 0.5rem 1rem;
-  background: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  align-self: flex-start;
-}
-
-.add-btn:disabled {
-  background: #ccc;
-  cursor: not-allowed;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  transition: all 0.15s;
+  
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
+  }
 }
 
 .no-data {
-  color: #666;
+  color: var(--color-text-light);
   font-style: italic;
   text-align: center;
-  padding: 1rem;
-  font-size: 0.85rem;
+  padding: 16px;
+  font-size: 13px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
 }
 </style>
-
-
-

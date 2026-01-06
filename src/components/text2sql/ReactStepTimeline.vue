@@ -3,7 +3,7 @@
     <!-- 스텝 네비게이션 -->
     <div class="step-nav">
       <button class="nav-btn" @click="prevStep" :disabled="currentStepIndex === 0" type="button">
-        ‹
+        <IconChevronLeft :size="18" />
       </button>
 
       <div class="step-indicators">
@@ -20,7 +20,7 @@
       </div>
 
       <button class="nav-btn" @click="nextStep" :disabled="currentStepIndex === sortedSteps.length - 1" type="button">
-        ›
+        <IconChevronRight :size="18" />
       </button>
     </div>
 
@@ -46,6 +46,7 @@
           <div class="sql-header">
             <h3>생성된 SQL</h3>
             <button class="btn-copy" @click="copySql(currentStep.partial_sql)" type="button">
+              <IconCopy :size="12" />
               복사
             </button>
           </div>
@@ -56,7 +57,10 @@
 
         <!-- 추론 과정 -->
         <div class="reasoning-section">
-          <h3>AI의 사고 과정</h3>
+          <h3>
+            <IconBrain :size="14" />
+            AI의 사고 과정
+          </h3>
           <p class="reasoning-text">{{ currentStep.reasoning || '설명 없음' }}</p>
         </div>
 
@@ -101,6 +105,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { ReactStepModel } from '@/types'
+import { IconChevronLeft, IconChevronRight, IconCopy, IconBrain } from '@/components/icons'
 
 const props = defineProps<{
   steps: ReactStepModel[]
@@ -131,43 +136,41 @@ function copySql(sql: string) {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .step-timeline {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .step-nav {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  background: white;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  gap: 8px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
 }
 
 .nav-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid #e5e7eb;
-  background: white;
-  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: #6b7280;
-  font-size: 18px;
-  font-weight: 600;
-  transition: all 0.2s;
+  color: var(--color-text-light);
+  transition: all 0.15s;
 }
 
 .nav-btn:hover:not(:disabled) {
-  border-color: #667eea;
-  background: #f0f4ff;
-  color: #667eea;
+  border-color: var(--color-accent);
+  background: rgba(34, 139, 230, 0.15);
+  color: var(--color-accent);
 }
 
 .nav-btn:disabled {
@@ -178,30 +181,30 @@ function copySql(sql: string) {
 .step-indicators {
   flex: 1;
   display: flex;
-  gap: 0.25rem;
+  gap: 4px;
   overflow-x: auto;
-  padding: 0.25rem 0;
+  padding: 4px 0;
 }
 
 .step-indicator {
   flex-shrink: 0;
-  padding: 0.4rem 0.75rem;
-  background: #f7fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s;
 }
 
 .step-indicator .step-number {
-  font-size: 0.85rem;
+  font-size: 13px;
   font-weight: 600;
-  color: #4a5568;
+  color: var(--color-text-light);
 }
 
 .step-indicator.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+  border-color: transparent;
 }
 
 .step-indicator.active .step-number {
@@ -209,96 +212,100 @@ function copySql(sql: string) {
 }
 
 .step-indicator:hover:not(.active) {
-  border-color: #667eea;
-  background: #f0f4ff;
+  border-color: var(--color-accent);
+  background: rgba(34, 139, 230, 0.1);
 }
 
 .step-card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  padding: 1.25rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
 }
 
 .step-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #f0f4ff;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .step-meta {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .step-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  color: #667eea;
+  color: var(--color-accent);
 }
 
 .tool-badge {
-  padding: 0.25rem 0.5rem;
-  background: #e0e7ff;
-  color: #5b21b6;
+  padding: 4px 10px;
+  background: rgba(124, 58, 237, 0.2);
+  color: var(--color-accent-secondary);
   border-radius: 12px;
-  font-size: 0.75rem;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .completeness-badge {
-  padding: 0.35rem 0.75rem;
-  border-radius: 8px;
-  font-size: 0.8rem;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
   font-weight: 600;
 }
 
 .completeness-badge.complete {
-  background: #d1fae5;
-  color: #065f46;
+  background: rgba(64, 192, 87, 0.2);
+  color: var(--color-success);
 }
 
 .completeness-badge.incomplete {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--color-warning);
 }
 
 .sql-highlight {
-  margin-bottom: 1rem;
-  border-radius: 8px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid #667eea;
+  border: 1px solid var(--color-accent);
 }
 
 .sql-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
 }
 
 .sql-header h3 {
   margin: 0;
   color: white;
-  font-size: 0.9rem;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .btn-copy {
-  padding: 0.25rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 600;
+  transition: all 0.15s;
 }
 
 .btn-copy:hover {
@@ -306,137 +313,142 @@ function copySql(sql: string) {
 }
 
 .sql-content {
-  background: #1e1e1e;
-  padding: 1rem;
+  background: var(--color-bg-tertiary);
+  padding: 16px;
   max-height: 200px;
   overflow: auto;
 }
 
 .sql-content pre {
   margin: 0;
-  color: #d4d4d4;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 0.85rem;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
   white-space: pre-wrap;
 }
 
 .sql-content code {
-  color: #9cdcfe;
+  color: var(--color-accent);
 }
 
 .reasoning-section {
-  background: #f0f9ff;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+  background: rgba(34, 139, 230, 0.1);
+  border: 1px solid rgba(34, 139, 230, 0.2);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 16px;
 }
 
 .reasoning-section h3 {
-  margin: 0 0 0.5rem 0;
-  color: #0c4a6e;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 0;
+  color: var(--color-accent);
+  font-size: 14px;
   font-weight: 600;
 }
 
 .reasoning-text {
   margin: 0;
-  color: #164e63;
-  font-size: 0.85rem;
-  line-height: 1.5;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.6;
   white-space: pre-wrap;
 }
 
 .details-section {
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   overflow: hidden;
 }
 
 .details-section summary {
-  padding: 0.75rem 1rem;
-  background: #f7fafc;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
   cursor: pointer;
   font-weight: 600;
-  color: #4a5568;
-  font-size: 0.85rem;
+  color: var(--color-text-light);
+  font-size: 13px;
+  transition: all 0.15s;
 }
 
 .details-section summary:hover {
-  background: #edf2f7;
-  color: #667eea;
+  background: var(--color-bg-elevated);
+  color: var(--color-accent);
 }
 
 .details-content {
-  padding: 1rem;
-  background: white;
+  padding: 16px;
+  background: var(--color-bg-secondary);
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .detail-block {
-  padding: 0.75rem;
-  background: #f9fafb;
-  border-radius: 6px;
-  border-left: 3px solid #667eea;
+  padding: 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent);
 }
 
 .detail-block h4 {
-  margin: 0 0 0.5rem 0;
-  color: #1a202c;
-  font-size: 0.85rem;
+  margin: 0 0 8px 0;
+  color: var(--color-text);
+  font-size: 13px;
   font-weight: 600;
 }
 
 .info-row {
   display: flex;
-  gap: 0.5rem;
+  gap: 8px;
   align-items: baseline;
-  font-size: 0.8rem;
-  margin-bottom: 0.25rem;
+  font-size: 12px;
+  margin-bottom: 4px;
 }
 
 .info-row .label {
   font-weight: 600;
-  color: #4a5568;
+  color: var(--color-text-light);
   min-width: 70px;
 }
 
 .info-row .value {
-  color: #1a202c;
+  color: var(--color-text);
 }
 
 .info-row .value.code {
-  font-family: 'Consolas', monospace;
-  background: #edf2f7;
-  padding: 0.15rem 0.35rem;
-  border-radius: 3px;
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  background: var(--color-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
 }
 
 .nested-details {
-  margin-top: 0.5rem;
-  border-radius: 6px;
-  border: 1px solid #e5e7eb;
+  margin-top: 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   overflow: hidden;
 }
 
 .nested-details summary {
-  padding: 0.5rem 0.75rem;
-  background: white;
+  padding: 8px 12px;
+  background: var(--color-bg);
   cursor: pointer;
   font-weight: 500;
-  color: #667eea;
-  font-size: 0.8rem;
+  color: var(--color-accent);
+  font-size: 12px;
 }
 
 .nested-details pre {
   margin: 0;
-  padding: 0.75rem;
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'Consolas', monospace;
-  font-size: 0.75rem;
+  padding: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
   overflow-x: auto;
   white-space: pre-wrap;
 }
@@ -456,4 +468,3 @@ function copySql(sql: string) {
   transform: translateX(-20px);
 }
 </style>
-

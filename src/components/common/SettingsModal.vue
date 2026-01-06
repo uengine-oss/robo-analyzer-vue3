@@ -16,6 +16,18 @@ import { ref, computed, watch } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
+import { 
+  IconSettings, 
+  IconX, 
+  IconBarChart, 
+  IconKey, 
+  IconClipboard, 
+  IconAlertTriangle,
+  IconRefresh,
+  IconTrash,
+  IconCopy,
+  IconCheck
+} from '@/components/icons'
 
 // ============================================================================
 // Props & Emits
@@ -58,6 +70,9 @@ const showApiKey = ref(false)
 /** 변경 여부 */
 const hasChanges = ref(false)
 
+/** 복사 완료 상태 */
+const copied = ref(false)
+
 // store의 apiKey와 동기화
 watch(storeApiKey, (value) => {
   if (value) {
@@ -73,17 +88,20 @@ const activeSection = ref<'display' | 'api' | 'session' | 'danger'>('display')
 // ============================================================================
 
 /** 현재 그래프 노드 수 */
-const currentNodeCount = computed(() => graphData.value?.nodes.length || 0)
+const _currentNodeCount = computed(() => graphData.value?.nodes.length || 0)
+void _currentNodeCount // suppress unused warning
 
 /** 현재 그래프 관계 수 */
-const currentRelCount = computed(() => graphData.value?.links.length || 0)
+const _currentRelCount = computed(() => graphData.value?.links.length || 0)
+void _currentRelCount // suppress unused warning
 
 /** API Key 마스킹 */
-const maskedApiKey = computed(() => {
+const _maskedApiKey = computed(() => {
   if (!tempApiKey.value) return '설정되지 않음'
   if (showApiKey.value) return tempApiKey.value
   return tempApiKey.value.slice(0, 8) + '••••••••••••••••'
 })
+void _maskedApiKey // suppress unused warning
 
 // ============================================================================
 // 핸들러
@@ -96,6 +114,8 @@ function handleClose() {
 
 function handleCopySessionId() {
   navigator.clipboard.writeText(sessionId.value)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
 }
 
 function handleNewSession() {
@@ -180,10 +200,14 @@ watch(() => props.isOpen, (isOpen) => {
           <!-- 헤더 -->
           <div class="modal-header">
             <h2>
-              <span class="header-icon">⚙️</span>
+              <span class="header-icon">
+                <IconSettings :size="20" />
+              </span>
               설정
             </h2>
-            <button class="close-btn" @click="handleClose">✕</button>
+            <button class="close-btn" @click="handleClose">
+              <IconX :size="18" />
+            </button>
           </div>
 
           <!-- 사이드바 + 컨텐츠 -->
@@ -194,28 +218,28 @@ watch(() => props.isOpen, (isOpen) => {
                 :class="{ active: activeSection === 'display' }"
                 @click="activeSection = 'display'"
               >
-                <span>📊</span>
+                <IconBarChart :size="16" />
                 표시 설정
               </button>
               <button 
                 :class="{ active: activeSection === 'api' }"
                 @click="activeSection = 'api'"
               >
-                <span>🔑</span>
+                <IconKey :size="16" />
                 API 설정
               </button>
               <button 
                 :class="{ active: activeSection === 'session' }"
                 @click="activeSection = 'session'"
               >
-                <span>📋</span>
+                <IconClipboard :size="16" />
                 세션 정보
               </button>
               <button 
                 :class="{ active: activeSection === 'danger' }"
                 @click="activeSection = 'danger'"
               >
-                <span>⚠️</span>
+                <IconAlertTriangle :size="16" />
                 데이터 관리
               </button>
             </nav>
@@ -290,8 +314,16 @@ watch(() => props.isOpen, (isOpen) => {
                       <button 
                         class="toggle-visibility" 
                         @click="showApiKey = !showApiKey"
+                        :title="showApiKey ? '숨기기' : '보기'"
                       >
-                        {{ showApiKey ? '🙈' : '👁️' }}
+                        <svg v-if="showApiKey" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                          <line x1="1" y1="1" x2="23" y2="23"/>
+                        </svg>
+                        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
                       </button>
                     </div>
                   </div>
@@ -310,7 +342,8 @@ watch(() => props.isOpen, (isOpen) => {
                   <div class="setting-control">
                     <code class="session-id">{{ sessionId }}</code>
                     <button class="copy-btn" @click="handleCopySessionId" title="복사">
-                      📋
+                      <IconCheck v-if="copied" :size="14" class="check-icon" />
+                      <IconCopy v-else :size="14" />
                     </button>
                   </div>
                 </div>
@@ -329,7 +362,10 @@ watch(() => props.isOpen, (isOpen) => {
 
               <!-- 데이터 관리 -->
               <div v-if="activeSection === 'danger'" class="settings-section danger-zone">
-                <h3>⚠️ 데이터 관리</h3>
+                <h3>
+                  <IconAlertTriangle :size="16" class="danger-icon" />
+                  데이터 관리
+                </h3>
                 
                 <div class="setting-item">
                   <div class="setting-label">
@@ -339,8 +375,9 @@ watch(() => props.isOpen, (isOpen) => {
                     </span>
                   </div>
                   <div class="setting-control">
-                    <button class="danger-btn secondary" @click="handleNewSession">
-                      🔄 새 세션
+                    <button class="btn btn--secondary" @click="handleNewSession">
+                      <IconRefresh :size="14" />
+                      새 세션
                     </button>
                   </div>
                 </div>
@@ -353,8 +390,9 @@ watch(() => props.isOpen, (isOpen) => {
                     </span>
                   </div>
                   <div class="setting-control">
-                    <button class="danger-btn" @click="handleDeleteAll">
-                      🗑️ 전체 삭제
+                    <button class="btn btn--danger" @click="handleDeleteAll">
+                      <IconTrash :size="14" />
+                      전체 삭제
                     </button>
                   </div>
                 </div>
@@ -363,9 +401,8 @@ watch(() => props.isOpen, (isOpen) => {
               
               <!-- 저장 버튼 (하단) -->
               <div class="modal-footer">
-                <button class="save-btn" @click="handleSaveAndApply">
-                  저장
-                </button>
+                <button class="btn btn--secondary" @click="handleClose">취소</button>
+                <button class="btn btn--primary" @click="handleSaveAndApply">저장</button>
               </div>
             </div>
           </div>
@@ -383,7 +420,8 @@ watch(() => props.isOpen, (isOpen) => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -395,12 +433,13 @@ watch(() => props.isOpen, (isOpen) => {
   height: 600px;
   max-width: 90vw;
   max-height: 90vh;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid var(--color-border);
 }
 
 // ============================================================================
@@ -412,8 +451,8 @@ watch(() => props.isOpen, (isOpen) => {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
 
   h2 {
     display: flex;
@@ -421,33 +460,14 @@ watch(() => props.isOpen, (isOpen) => {
     gap: 10px;
     font-size: 18px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--color-text-bright);
     margin: 0;
 
     .header-icon {
-      font-size: 22px;
-    }
-  }
-
-
-  .close-btn {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    color: #64748b;
-    font-size: 16px;
-    cursor: pointer;
-    transition: all 0.15s;
-
-    &:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-      color: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--color-accent);
     }
   }
 }
@@ -470,8 +490,8 @@ watch(() => props.isOpen, (isOpen) => {
   width: 180px;
   flex-shrink: 0;
   padding: 16px;
-  background: #f8fafc;
-  border-right: 1px solid #e2e8f0;
+  background: var(--color-bg-tertiary);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -483,28 +503,37 @@ watch(() => props.isOpen, (isOpen) => {
     padding: 12px 14px;
     background: transparent;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 500;
-    color: #64748b;
+    color: var(--color-text-light);
     cursor: pointer;
     transition: all 0.15s;
     text-align: left;
 
-    span {
-      font-size: 16px;
+    svg {
+      flex-shrink: 0;
     }
 
     &:hover {
-      background: #e2e8f0;
-      color: #334155;
+      background: var(--color-bg-elevated);
+      color: var(--color-text);
     }
 
     &.active {
-      background: #f8fafc;
-      color: #1e293b;
+      background: var(--color-bg-secondary);
+      color: var(--color-accent);
       font-weight: 600;
-      border-left: 2px solid #cbd5e1;
+      
+      &::before {
+        content: '';
+        position: absolute;
+        left: 16px;
+        width: 3px;
+        height: 20px;
+        background: var(--color-accent);
+        border-radius: 2px;
+      }
     }
   }
 }
@@ -537,33 +566,40 @@ watch(() => props.isOpen, (isOpen) => {
   }
   
   &::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
+    background: var(--color-border);
     border-radius: 3px;
     
     &:hover {
-      background: #94a3b8;
+      background: var(--color-text-light);
     }
   }
   
   // Firefox
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 .settings-section {
   h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 16px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--color-text-bright);
     margin: 0 0 20px 0;
     padding-bottom: 12px;
-    border-bottom: 1px solid #e2e8f0;
+    border-bottom: 1px solid var(--color-border);
+    
+    .danger-icon {
+      color: var(--color-warning);
+    }
   }
 
   &.danger-zone {
     h3 {
-      color: #1e293b;
-      border-color: #e2e8f0;
+      color: var(--color-text-bright);
+      border-color: var(--color-border);
     }
   }
 }
@@ -574,7 +610,7 @@ watch(() => props.isOpen, (isOpen) => {
 
 .setting-item {
   padding: 16px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--color-border);
 
   &:last-child {
     border-bottom: none;
@@ -582,9 +618,10 @@ watch(() => props.isOpen, (isOpen) => {
 
   &.readonly {
     .setting-control {
-      background: #f8fafc;
-      padding: 8px 12px;
-      border-radius: 8px;
+      background: var(--color-bg-tertiary);
+      padding: 10px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
     }
   }
 }
@@ -596,14 +633,14 @@ watch(() => props.isOpen, (isOpen) => {
     display: block;
     font-size: 14px;
     font-weight: 600;
-    color: #334155;
+    color: var(--color-text);
     margin-bottom: 4px;
   }
 
   .label-desc {
     display: block;
     font-size: 12px;
-    color: #64748b;
+    color: var(--color-text-light);
     line-height: 1.5;
   }
 }
@@ -617,34 +654,55 @@ watch(() => props.isOpen, (isOpen) => {
   input[type="text"],
   input[type="password"] {
     width: 120px;
-    padding: 8px 12px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
+    padding: 10px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
     font-size: 14px;
-    color: #334155;
+    color: var(--color-text-bright);
+    background: var(--color-bg);
     transition: all 0.15s;
 
     &:focus {
       outline: none;
-      border-color: #64748b;
-      box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.1);
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
     }
   }
 
   input[type="range"] {
     flex: 1;
     max-width: 200px;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--color-bg-tertiary);
+    border-radius: 3px;
+    
+    &::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--color-accent);
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.15s;
+      
+      &:hover {
+        transform: scale(1.1);
+      }
+    }
   }
 
   .unit, .value {
     font-size: 13px;
-    color: #64748b;
+    color: var(--color-text-light);
     min-width: 30px;
   }
 
   .value {
     font-weight: 600;
-    color: #64748b;
+    color: var(--color-accent);
+    font-size: 14px;
   }
 
   &.api-key-control {
@@ -665,56 +723,24 @@ watch(() => props.isOpen, (isOpen) => {
       .toggle-visibility {
         width: 36px;
         height: 36px;
-        background: #f1f5f9;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--color-bg-tertiary);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        color: var(--color-text-light);
         cursor: pointer;
         transition: all 0.15s;
 
         &:hover {
-          background: #e2e8f0;
+          background: var(--color-bg-elevated);
+          color: var(--color-text);
         }
       }
     }
   }
-
-  &.stats {
-    gap: 24px;
-
-    .stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-
-      .stat-value {
-        font-size: 20px;
-        font-weight: 700;
-        color: #64748b;
-      }
-
-      .stat-label {
-        font-size: 11px;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-    }
-  }
 }
-
-.setting-info {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #64748b;
-
-  strong {
-    color: #64748b;
-  }
-}
-
-// ============================================================================
-// 버튼
-// ============================================================================
 
 // ============================================================================
 // 모달 푸터
@@ -722,73 +748,34 @@ watch(() => props.isOpen, (isOpen) => {
 
 .modal-footer {
   padding: 16px 24px;
-  border-top: 1px solid #e2e8f0;
-  background: #ffffff;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
   display: flex;
   justify-content: flex-end;
-}
-
-.save-btn {
-  padding: 10px 24px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s;
-
-  &:hover {
-    background: #2563eb;
-  }
-
-  &:active {
-    transform: scale(0.98);
-  }
+  gap: 12px;
 }
 
 .copy-btn {
-  width: 36px;
-  height: 36px;
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s;
-
-  &:hover {
-    background: #f1f5f9;
-  }
-}
-
-.danger-btn {
-  padding: 10px 20px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
-  color: #dc2626;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-light);
   cursor: pointer;
   transition: all 0.15s;
 
   &:hover {
-    background: #fef2f2;
-    border-color: #fecaca;
-    color: #b91c1c;
+    background: var(--color-bg-elevated);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
   }
-
-  &.secondary {
-    background: transparent;
-    color: #64748b;
-    border: 1px solid #cbd5e1;
-
-    &:hover {
-      background: #f8fafc;
-      border-color: #94a3b8;
-      color: #475569;
-    }
+  
+  .check-icon {
+    color: var(--color-success);
   }
 }
 
@@ -797,16 +784,16 @@ watch(() => props.isOpen, (isOpen) => {
 // ============================================================================
 
 .session-id {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: #334155;
+  color: var(--color-text);
   word-break: break-all;
 }
 
 .project-name {
   font-size: 14px;
   font-weight: 500;
-  color: #334155;
+  color: var(--color-text);
 }
 
 // ============================================================================
@@ -831,4 +818,3 @@ watch(() => props.isOpen, (isOpen) => {
   }
 }
 </style>
-

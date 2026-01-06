@@ -8,10 +8,12 @@ import { computed, ref } from 'vue'
 import { text2sqlApi } from '@/services/api'
 import type {
   ReactStatus,
+  ReactPhase,
   ReactStepModel,
   ReactExecutionResult,
   ReactResponseModel,
   ReactRequest,
+  ReactPhaseData,
   Text2SqlTableInfo,
   Text2SqlColumnInfo
 } from '@/types'
@@ -55,6 +57,11 @@ export const useReactStore = defineStore('react', () => {
   const questionToUser = ref<string | null>(null)
   const remainingToolCalls = ref<number>(0)
   const abortController = ref<AbortController | null>(null)
+  
+  // Phase 상태 (실시간 진행 표시용)
+  const currentPhase = ref<ReactPhase>('idle')
+  const currentIteration = ref<number>(0)
+  const currentPhaseData = ref<ReactPhaseData | null>(null)
 
   // Computed
   const isRunning = computed(() => status.value === 'running')
@@ -79,6 +86,9 @@ export const useReactStore = defineStore('react', () => {
     sessionState.value = null
     questionToUser.value = null
     remainingToolCalls.value = 0
+    currentPhase.value = 'idle'
+    currentIteration.value = 0
+    currentPhaseData.value = null
   }
 
   function cancelOngoing() {
@@ -123,24 +133,38 @@ export const useReactStore = defineStore('react', () => {
     try {
       for await (const event of text2sqlApi.reactStream(request, { signal: controller.signal })) {
         switch (event.event) {
+          case 'phase': {
+            // 실시간 진행 상태 업데이트
+            currentPhase.value = event.phase
+            currentIteration.value = event.iteration
+            currentPhaseData.value = event.data
+            applyStateSnapshot(event.state)
+            break
+          }
           case 'step': {
             upsertStep(event.step)
             applyStateSnapshot(event.state)
+            // 스텝 완료 후 phase 초기화 (다음 스텝 대기)
+            currentPhase.value = 'idle'
+            currentPhaseData.value = null
             break
           }
           case 'needs_user_input': {
             applyResponse(event.response)
             status.value = 'needs_user_input'
+            currentPhase.value = 'idle'
             return
           }
           case 'completed': {
             applyResponse(event.response)
             status.value = 'completed'
+            currentPhase.value = 'idle'
             return
           }
           case 'error': {
             error.value = event.message
             status.value = 'error'
+            currentPhase.value = 'idle'
             return
           }
           default:
@@ -154,6 +178,7 @@ export const useReactStore = defineStore('react', () => {
       console.error('ReAct 스트리밍 중 오류', err)
       error.value = err instanceof Error ? err.message : 'ReAct 실행 중 오류가 발생했습니다.'
       status.value = 'error'
+      currentPhase.value = 'idle'
     }
   }
 
@@ -236,12 +261,18 @@ export const useReactStore = defineStore('react', () => {
     sessionState,
     questionToUser,
     remainingToolCalls,
+    // Phase 상태
+    currentPhase,
+    currentIteration,
+    currentPhaseData,
+    // Computed
     isRunning,
     isWaitingUser,
     hasSteps,
     hasExecutionResult,
     latestStep,
     latestPartialSql,
+    // Actions
     start,
     continueWithResponse,
     cancel,

@@ -48,21 +48,21 @@ const setActive = (tabId: string) => {
 </template>
 
 <style lang="scss" scoped>
-// 모던하고 미니멀한 탭 디자인
+// 모던 다크 테마 탭 디자인
 .tab-container {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .tab-header {
   display: flex;
   gap: 0;
   padding: 0 16px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
   min-height: 48px;
 }
 
@@ -73,7 +73,7 @@ const setActive = (tabId: string) => {
   padding: 0 20px;
   font-size: 14px;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--color-text-light);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -83,13 +83,13 @@ const setActive = (tabId: string) => {
   margin-bottom: -1px;
   
   &:hover:not(.active) {
-    color: #64748b;
+    color: var(--color-text);
   }
   
   &.active {
-    color: #0f172a;
+    color: var(--color-text-bright);
     font-weight: 600;
-    border-bottom-color: #3b82f6;
+    border-bottom-color: var(--color-accent);
     
     .tab-icon {
       opacity: 1;
@@ -111,7 +111,7 @@ const setActive = (tabId: string) => {
   flex: 1;
   display: flex;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--color-bg);
 }
 
 .tab-panel {

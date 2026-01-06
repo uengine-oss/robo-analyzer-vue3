@@ -27,7 +27,10 @@
     <div class="sql-section" v-if="partialSql">
       <div class="section-header">
         <h3>현재 SQL 스냅샷</h3>
-        <button class="btn-copy" type="button" @click="copyPartialSql">복사</button>
+        <button class="btn-copy" type="button" @click="copyPartialSql">
+          <IconCopy :size="12" />
+          복사
+        </button>
       </div>
       <div class="sql-content">
         <pre><code>{{ partialSql }}</code></pre>
@@ -37,7 +40,10 @@
     <div class="sql-section" v-if="finalSql">
       <div class="section-header final">
         <h3>최종 SQL</h3>
-        <button class="btn-copy" type="button" @click="copyFinalSql">복사</button>
+        <button class="btn-copy" type="button" @click="copyFinalSql">
+          <IconCopy :size="12" />
+          복사
+        </button>
       </div>
       <div class="sql-content">
         <pre><code>{{ finalSql }}</code></pre>
@@ -47,7 +53,10 @@
     <div class="sql-section" v-if="validatedSql && validatedSql !== finalSql">
       <div class="section-header validated">
         <h3>검증된 SQL</h3>
-        <button class="btn-copy" type="button" @click="copyValidatedSql">복사</button>
+        <button class="btn-copy" type="button" @click="copyValidatedSql">
+          <IconCopy :size="12" />
+          복사
+        </button>
       </div>
       <div class="sql-content">
         <pre><code>{{ validatedSql }}</code></pre>
@@ -55,7 +64,10 @@
     </div>
 
     <div class="warning-section" v-if="warnings.length">
-      <h3>⚠️ 경고</h3>
+      <h3>
+        <IconAlertTriangle :size="14" />
+        경고
+      </h3>
       <ul>
         <li v-for="warning in warnings" :key="warning">{{ warning }}</li>
       </ul>
@@ -78,6 +90,7 @@
 import { computed } from 'vue'
 import ResultTable from './ResultTable.vue'
 import type { ReactExecutionResult, ReactStepModel } from '@/types'
+import { IconCopy, IconAlertTriangle } from '@/components/icons'
 
 const props = defineProps<{
   status: 'idle' | 'running' | 'needs_user_input' | 'completed' | 'error'
@@ -143,120 +156,120 @@ function copyValidatedSql() {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .summary-panel {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .status-banner {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  padding: 1rem 1.25rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 16px;
 }
 
 .status-text {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
 .status-label {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 14px;
 }
 
 .status-icon {
-  font-size: 1rem;
+  font-size: 14px;
 }
 
 .status-label.idle {
-  background: #f0f0f0;
-  color: #666;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-light);
 }
 
 .status-label.running {
-  background: #dbeafe;
-  color: #1e40af;
+  background: rgba(34, 139, 230, 0.2);
+  color: var(--color-accent);
   animation: pulse 2s ease-in-out infinite;
 }
 
 .status-label.waiting {
-  background: #fef3c7;
-  color: #92400e;
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--color-warning);
 }
 
 .status-label.completed {
-  background: #d1fae5;
-  color: #065f46;
+  background: rgba(64, 192, 87, 0.2);
+  color: var(--color-success);
 }
 
 .status-label.error {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(250, 82, 82, 0.2);
+  color: var(--color-error);
 }
 
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(30, 64, 175, 0.3); }
-  50% { box-shadow: 0 0 0 4px rgba(30, 64, 175, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 139, 230, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(34, 139, 230, 0); }
 }
 
 .step-indicator {
-  padding: 0.35rem 0.75rem;
-  background: #f0f4ff;
-  border: 1px solid #667eea;
+  padding: 6px 12px;
+  background: rgba(34, 139, 230, 0.15);
+  border: 1px solid var(--color-accent);
   border-radius: 12px;
-  color: #667eea;
+  color: var(--color-accent);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 12px;
 }
 
 .status-meta {
   display: flex;
-  gap: 1rem;
+  gap: 16px;
   flex-wrap: wrap;
   align-items: center;
 }
 
 .meta-item {
-  font-size: 0.85rem;
-  color: #6b7280;
+  font-size: 13px;
+  color: var(--color-text-light);
   white-space: nowrap;
 }
 
 .meta-item strong {
-  color: #1f2937;
+  color: var(--color-text);
   font-weight: 700;
 }
 
 .meta-item.warning {
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 
 .meta-item.tool-name {
-  color: #8b5cf6;
+  color: var(--color-accent-secondary);
 }
 
 .meta-item.completeness {
-  color: #10b981;
+  color: var(--color-success);
 }
 
 .sql-section {
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -264,34 +277,38 @@ function copyValidatedSql() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, var(--color-accent-secondary), #5b21b6);
 }
 
 .section-header.final {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, var(--color-success), #059669);
 }
 
 .section-header.validated {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  background: linear-gradient(135deg, var(--color-accent), #1c7ed6);
 }
 
 .section-header h3 {
   margin: 0;
   color: white;
-  font-size: 0.9rem;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .btn-copy {
-  padding: 0.25rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
   background: rgba(255, 255, 255, 0.2);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 600;
+  transition: all 0.15s;
 }
 
 .btn-copy:hover {
@@ -299,86 +316,88 @@ function copyValidatedSql() {
 }
 
 .sql-content {
-  background: #1e1e1e;
-  padding: 1rem;
+  background: var(--color-bg-tertiary);
+  padding: 16px;
   max-height: 250px;
   overflow: auto;
 }
 
 .sql-content pre {
   margin: 0;
-  color: #d4d4d4;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 0.85rem;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 13px;
   white-space: pre-wrap;
 }
 
 .sql-content code {
-  color: #9cdcfe;
+  color: var(--color-accent);
 }
 
 .warning-section {
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border-left: 3px solid #f59e0b;
-  padding: 1rem;
-  border-radius: 10px;
+  background: rgba(251, 191, 36, 0.1);
+  border-left: 3px solid var(--color-warning);
+  padding: 16px;
+  border-radius: var(--radius-lg);
 }
 
 .warning-section h3 {
-  margin: 0 0 0.5rem 0;
-  color: #92400e;
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 0;
+  color: var(--color-warning);
+  font-size: 14px;
 }
 
 .warning-section ul {
   margin: 0;
-  padding-left: 1.25rem;
-  color: #78350f;
-  font-size: 0.85rem;
+  padding-left: 20px;
+  color: var(--color-text);
+  font-size: 13px;
 }
 
 .warning-section li {
-  margin-bottom: 0.25rem;
+  margin-bottom: 4px;
 }
 
 .metadata-section details {
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
-  border: 1px solid #e5e7eb;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .metadata-section summary {
-  padding: 0.75rem 1rem;
+  padding: 12px 16px;
   cursor: pointer;
-  color: #667eea;
+  color: var(--color-accent);
   font-weight: 600;
-  font-size: 0.85rem;
-  background: #f7fafc;
+  font-size: 13px;
+  background: var(--color-bg-tertiary);
+  transition: all 0.15s;
 }
 
 .metadata-section summary:hover {
-  background: #edf2f7;
+  background: var(--color-bg-elevated);
 }
 
 .metadata-section pre {
   margin: 0;
-  padding: 1rem;
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'Consolas', monospace;
-  font-size: 0.8rem;
+  padding: 16px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
   overflow-x: auto;
   white-space: pre-wrap;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--color-border);
 }
 
 .result-section {
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 </style>
-

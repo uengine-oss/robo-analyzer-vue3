@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import UploadTab from '@/components/upload/UploadTab.vue'
 import GraphTab from '@/components/graph/GraphTab.vue'
+import LineageTab from '@/components/lineage/LineageTab.vue'
+import GlossaryTab from '@/components/glossary/GlossaryTab.vue'
 import Text2SqlTab from '@/components/text2sql/Text2SqlTab.vue'
+import { DataQuality, IncidentManager, AlertsPage } from '@/components/observability'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
 
@@ -14,7 +17,14 @@ const { activeTab } = storeToRefs(sessionStore)
     <!-- 현재 활성 탭에 따라 컴포넌트 표시 -->
     <UploadTab v-if="activeTab === 'upload'" />
     <GraphTab v-else-if="activeTab === 'graph'" />
+    <LineageTab v-else-if="activeTab === 'lineage'" />
+    <GlossaryTab v-else-if="activeTab === 'glossary'" />
     <Text2SqlTab v-else-if="activeTab === 'text2sql'" />
+    
+    <!-- Observability 탭들 -->
+    <DataQuality v-else-if="activeTab === 'data-quality'" />
+    <IncidentManager v-else-if="activeTab === 'incident-manager'" />
+    <AlertsPage v-else-if="activeTab === 'alerts'" />
   </div>
 </template>
 
@@ -24,8 +34,8 @@ const { activeTab } = storeToRefs(sessionStore)
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #ffffff;
-  border-radius: 12px 0 0 0;
-  box-shadow: -1px 0 0 #e5e7eb;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg) 0 0 0;
+  box-shadow: -1px 0 0 var(--color-border);
 }
 </style>

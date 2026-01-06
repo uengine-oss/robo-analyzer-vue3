@@ -411,13 +411,13 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   gap: 8px;
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .type-label {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--color-text-bright);
 }
 
 .type-badge {
@@ -427,12 +427,12 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-radius: 4px;
-  background: #3b82f6;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
   color: white;
   
   &.relationship-badge {
-    background: #9ca3af;
+    background: var(--color-text-muted);
     color: white;
   }
 }
@@ -445,9 +445,9 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   flex: 1;
   overflow-y: auto;
   margin-bottom: 16px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
 }
 
 .props-table {
@@ -467,26 +467,26 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      border-bottom: 2px solid #e2e8f0;
+      border-bottom: 2px solid var(--color-border);
       
       &.col-key {
         width: 110px;
         min-width: 110px;
-        background: #f1f5f9;
-        color: #475569;
+        background: var(--color-bg-tertiary);
+        color: var(--color-text-light);
       }
       
       &.col-value {
         width: auto;
-        background: #f8fafc;
-        color: #64748b;
+        background: var(--color-bg-secondary);
+        color: var(--color-text-muted);
       }
     }
   }
   
   tbody {
     tr {
-      border-bottom: 1px solid #f1f5f9;
+      border-bottom: 1px solid var(--color-border);
       
       &:last-child {
         border-bottom: none;
@@ -502,21 +502,21 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 
 .cell-key {
   font-weight: 600;
-  color: #334155;
+  color: var(--color-text);
   font-size: 12px;
   white-space: nowrap;
-  background: #f8fafc;
-  border-right: 1px solid #e2e8f0;
+  background: var(--color-bg-tertiary);
+  border-right: 1px solid var(--color-border);
 }
 
 .cell-value {
-  background: white;
+  background: var(--color-bg);
 }
 
 .cell-empty {
   text-align: center;
   padding: 20px;
-  color: #9ca3af;
+  color: var(--color-text-muted);
   font-style: italic;
 }
 
@@ -527,7 +527,7 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 .value-container {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: #0369a1;
+  color: var(--color-accent);
   line-height: 1.6;
   
   .value-content {
@@ -552,7 +552,7 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   margin-top: 6px;
   background: none;
   border: none;
-  color: #3b82f6;
+  color: var(--color-accent);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -579,13 +579,13 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
 
 .stats-section {
   margin-bottom: 20px;
-  flex-shrink: 0; // 섹션이 축소되지 않도록
+  flex-shrink: 0;
 }
 
 .section-title {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--color-text-bright);
   margin-bottom: 12px;
 }
 
@@ -605,11 +605,11 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   color: white;
   
   &.total {
-    background: #6b7280;
+    background: var(--color-text-muted);
   }
   
   &.rel {
-    background: #9ca3af;
+    background: var(--color-text-light);
   }
   
   &.clickable {
@@ -619,7 +619,7 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
     
     &:hover {
       transform: scale(1.02);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
       z-index: 1;
       opacity: 0.9;
     }
@@ -642,7 +642,7 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   .summary-main {
     font-size: 13px;
     font-weight: 400;
-    color: #334155;
+    color: var(--color-text);
   }
   
   .limit-warning {
@@ -651,7 +651,7 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
     font-weight: 400;
     
     .warning-text {
-      color: #ea580c;
+      color: var(--color-warning);
       font-size: 12px;
       line-height: 1.5;
     }
@@ -666,14 +666,14 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
     
     .hidden-badge {
       padding: 2px 8px;
-      background: #fef3c7;
-      color: #92400e;
+      background: rgba(250, 176, 5, 0.2);
+      color: var(--color-warning);
       border-radius: 10px;
       font-weight: 500;
     }
     
     .hint {
-      color: #94a3b8;
+      color: var(--color-text-muted);
     }
   }
 }
