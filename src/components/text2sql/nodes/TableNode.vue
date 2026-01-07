@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import type { Text2SqlColumnInfo } from '@/types'
 
 interface TableNodeData {
@@ -21,18 +21,30 @@ const props = defineProps<{
 const onRemoveTable = inject<(tableName: string) => void>('onRemoveTable')
 const onLoadRelated = inject<(tableName: string) => void>('onLoadRelated')
 
-// Show only first 6 columns
+// Hover state for showing handles
+const hoveredColumn = ref<string | null>(null)
+
+// Show only first 8 columns for ERD
 const displayColumns = computed(() => {
-  return (props.data.columns || []).slice(0, 6)
+  return (props.data.columns || []).slice(0, 8)
 })
 
 const hasMoreColumns = computed(() => {
-  return (props.data.columns?.length || 0) > 6
+  return (props.data.columns?.length || 0) > 8
 })
 
 const moreColumnsCount = computed(() => {
-  return (props.data.columns?.length || 0) - 6
+  return (props.data.columns?.length || 0) - 8
 })
+
+// Primary key column (typically 'id')
+const pkColumn = computed(() => {
+  return props.data.columns?.find(c => c.name.toLowerCase() === 'id')
+})
+
+function isPrimaryKey(colName: string): boolean {
+  return colName.toLowerCase() === 'id'
+}
 
 function isForeignKey(colName: string): boolean {
   return colName.endsWith('_id') && colName.toLowerCase() !== 'id'
@@ -61,6 +73,14 @@ function handleLoadRelated(e: Event) {
   e.stopPropagation()
   onLoadRelated?.(props.data.tableName)
 }
+
+function onColumnMouseEnter(colName: string) {
+  hoveredColumn.value = colName
+}
+
+function onColumnMouseLeave() {
+  hoveredColumn.value = null
+}
 </script>
 
 <template>
@@ -68,8 +88,17 @@ function handleLoadRelated(e: Event) {
     class="table-node"
     :class="{ 'is-selected': selected }"
   >
-    <!-- Header -->
+    <!-- Header with PK Target Handle -->
     <div class="table-node__header">
+      <!-- PK Target Handle - for receiving FK connections -->
+      <Handle 
+        v-if="pkColumn"
+        :id="`pk-${pkColumn.name}`"
+        type="target"
+        :position="Position.Left"
+        class="table-node__pk-handle table-node__pk-handle--left"
+      />
+      
       <div class="table-node__icon">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -103,6 +132,15 @@ function handleLoadRelated(e: Event) {
           </svg>
         </button>
       </div>
+      
+      <!-- PK Target Handle Right -->
+      <Handle 
+        v-if="pkColumn"
+        :id="`pk-${pkColumn.name}-right`"
+        type="target"
+        :position="Position.Right"
+        class="table-node__pk-handle table-node__pk-handle--right"
+      />
     </div>
     
     <!-- Description -->
@@ -117,21 +155,26 @@ function handleLoadRelated(e: Event) {
         :key="col.name"
         class="table-node__column"
         :class="{
-          'is-pk': col.name.toLowerCase() === 'id',
-          'is-fk': isForeignKey(col.name)
+          'is-pk': isPrimaryKey(col.name),
+          'is-fk': isForeignKey(col.name),
+          'is-hovered': hoveredColumn === col.name
         }"
+        @mouseenter="onColumnMouseEnter(col.name)"
+        @mouseleave="onColumnMouseLeave"
       >
-        <!-- Left handle for incoming connections -->
+        <!-- Source Handle (right side) - for FK columns to drag -->
         <Handle 
-          :id="`col-${col.name}`"
-          type="target"
-          :position="Position.Left"
-          class="table-node__handle table-node__handle--left"
+          v-if="isForeignKey(col.name) || hoveredColumn === col.name"
+          :id="`fk-${col.name}-source`"
+          type="source"
+          :position="Position.Right"
+          class="table-node__fk-handle table-node__fk-handle--right"
+          :class="{ 'is-visible': hoveredColumn === col.name || isForeignKey(col.name) }"
         />
         
         <div class="table-node__column-info">
           <span class="table-node__column-icon">
-            <template v-if="col.name.toLowerCase() === 'id'">🔑</template>
+            <template v-if="isPrimaryKey(col.name)">🔑</template>
             <template v-else-if="isForeignKey(col.name)">🔗</template>
             <template v-else>•</template>
           </span>
@@ -140,13 +183,14 @@ function handleLoadRelated(e: Event) {
           <span v-if="!col.nullable" class="table-node__column-required">*</span>
         </div>
         
-        <!-- Right handle for outgoing connections -->
-        <Handle 
-          :id="`col-${col.name}-out`"
-          type="source"
-          :position="Position.Right"
-          class="table-node__handle table-node__handle--right"
-        />
+        <!-- Drag hint for FK columns -->
+        <span 
+          v-if="isForeignKey(col.name)" 
+          class="table-node__drag-hint"
+          :class="{ 'is-visible': hoveredColumn === col.name }"
+        >
+          ➜
+        </span>
       </div>
       
       <!-- More columns indicator -->
@@ -168,12 +212,12 @@ function handleLoadRelated(e: Event) {
   background: var(--color-bg-secondary, #2c2e33);
   border: 2px solid var(--color-border, #373a40);
   border-radius: 10px;
-  min-width: 220px;
-  max-width: 280px;
+  min-width: 240px;
+  max-width: 300px;
   font-family: var(--font-main, 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   transition: all 0.2s ease;
-  /* overflow: hidden 제거 - 핸들이 보이도록 */
+  position: relative;
 }
 
 .table-node:hover {
@@ -194,6 +238,8 @@ function handleLoadRelated(e: Event) {
   padding: 10px 12px;
   background: linear-gradient(135deg, #339af0 0%, #228be6 100%);
   color: white;
+  border-radius: 8px 8px 0 0;
+  position: relative;
 }
 
 .table-node__icon {
@@ -245,6 +291,32 @@ function handleLoadRelated(e: Event) {
   background: rgba(255, 59, 48, 0.8);
 }
 
+/* PK Handle in Header - 받기용 */
+.table-node__pk-handle {
+  width: 14px !important;
+  height: 14px !important;
+  background: #ffd43b !important;
+  border: 2px solid #fff !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  cursor: crosshair !important;
+  z-index: 10 !important;
+  transition: all 0.2s ease !important;
+}
+
+.table-node__pk-handle:hover {
+  transform: scale(1.4) !important;
+  background: #40c057 !important;
+  box-shadow: 0 0 12px rgba(64, 192, 87, 0.8) !important;
+}
+
+.table-node__pk-handle--left {
+  left: -7px !important;
+}
+
+.table-node__pk-handle--right {
+  right: -7px !important;
+}
+
 /* Description */
 .table-node__description {
   padding: 8px 12px;
@@ -263,21 +335,30 @@ function handleLoadRelated(e: Event) {
 .table-node__column {
   display: flex;
   align-items: center;
-  padding: 5px 12px;
+  padding: 6px 12px;
   position: relative;
-  transition: background 0.1s ease;
+  transition: all 0.15s ease;
+  cursor: default;
 }
 
-.table-node__column:hover {
+.table-node__column:hover,
+.table-node__column.is-hovered {
   background: var(--color-bg-tertiary, #373a40);
 }
 
 .table-node__column.is-pk {
-  background: rgba(255, 212, 59, 0.1);
+  background: rgba(255, 212, 59, 0.15);
+  border-left: 3px solid #ffd43b;
 }
 
 .table-node__column.is-fk {
-  background: rgba(34, 139, 230, 0.1);
+  background: rgba(34, 139, 230, 0.12);
+  border-left: 3px solid #228be6;
+  cursor: grab;
+}
+
+.table-node__column.is-fk:hover {
+  background: rgba(34, 139, 230, 0.25);
 }
 
 .table-node__column-info {
@@ -288,10 +369,9 @@ function handleLoadRelated(e: Event) {
 }
 
 .table-node__column-icon {
-  font-size: 0.65rem;
-  width: 14px;
+  font-size: 0.7rem;
+  width: 16px;
   text-align: center;
-  color: var(--color-text-light, #909296);
 }
 
 .table-node__column.is-pk .table-node__column-icon {
@@ -326,44 +406,52 @@ function handleLoadRelated(e: Event) {
   font-size: 0.75rem;
 }
 
-/* Handles - 연결용 핸들 */
-.table-node__handle {
-  width: 14px !important;
-  height: 14px !important;
+/* FK Handle - 드래그용 */
+.table-node__fk-handle {
+  width: 12px !important;
+  height: 12px !important;
   background: #228be6 !important;
   border: 2px solid #fff !important;
-  transition: all 0.2s ease !important;
-  cursor: crosshair !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3) !important;
+  cursor: grab !important;
   z-index: 10 !important;
-  opacity: 0.7;
+  transition: all 0.2s ease !important;
+  opacity: 0;
 }
 
-.table-node__handle:hover {
-  background: #40c057 !important;
+.table-node__fk-handle.is-visible,
+.table-node__column:hover .table-node__fk-handle {
+  opacity: 1;
+}
+
+.table-node__fk-handle:hover {
   transform: scale(1.4) !important;
-  box-shadow: 0 0 12px rgba(64, 192, 87, 0.8) !important;
-  opacity: 1;
-}
-
-.table-node__handle--left {
-  left: -7px !important;
-}
-
-.table-node__handle--right {
-  right: -7px !important;
-}
-
-.table-node:hover .table-node__handle {
-  opacity: 1;
-  background: #339af0 !important;
-}
-
-/* 연결 중일 때 핸들 강조 */
-.table-node__handle.connecting,
-.table-node__handle.valid {
   background: #40c057 !important;
-  transform: scale(1.3) !important;
-  box-shadow: 0 0 16px rgba(64, 192, 87, 1) !important;
+  box-shadow: 0 0 12px rgba(64, 192, 87, 0.8) !important;
+  cursor: grabbing !important;
+}
+
+.table-node__fk-handle--right {
+  right: -6px !important;
+}
+
+/* Drag hint */
+.table-node__drag-hint {
+  font-size: 0.85rem;
+  color: var(--color-accent, #228be6);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  margin-left: 4px;
+}
+
+.table-node__drag-hint.is-visible {
+  opacity: 1;
+  animation: pulse-arrow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-arrow {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(4px); }
 }
 
 /* More columns */
@@ -382,6 +470,7 @@ function handleLoadRelated(e: Event) {
   align-items: center;
   padding: 6px 12px;
   background: var(--color-bg-tertiary, #25262b);
+  border-radius: 0 0 8px 8px;
   border-top: 1px solid var(--color-border, #373a40);
 }
 
@@ -398,4 +487,3 @@ function handleLoadRelated(e: Event) {
   color: var(--color-text-light, #909296);
 }
 </style>
-

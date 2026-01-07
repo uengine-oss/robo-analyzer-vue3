@@ -33,7 +33,7 @@ export function splitPath(path: string): string[] {
  *
  * - projectName을 최상위에 추가 (이미 있으면 추가 안 함)
  * - 원본 폴더 구조를 그대로 유지
- * - ddl/로 시작하는 경로는 projectName 없이 그대로 유지
+ * - ddl/로 시작하는 경로도 projectName을 앞에 붙임 (서버에서 projectName/ 접두사를 제거 후 처리)
  */
 export function getNormalizedUploadPath(file: File, projectName: string): string {
   const raw = (file as any).webkitRelativePath || file.name
@@ -42,17 +42,12 @@ export function getNormalizedUploadPath(file: File, projectName: string): string
   const safeProject = (projectName || '').trim()
   if (!safeProject) return parts.join('/')
 
-  // ddl/로 시작하는 경로는 projectName을 앞에 붙이지 않고 그대로 유지
-  if (parts.length > 0 && parts[0]?.toLowerCase() === 'ddl') {
-    return parts.join('/')
-  }
-
   // 이미 projectName으로 시작하면 그대로 반환
   if (parts[0] === safeProject) {
     return parts.join('/')
   }
 
-  // projectName을 앞에 추가 (교체가 아닌 추가)
+  // projectName을 앞에 추가 (ddl/ 포함 모든 경로에 적용)
   return [safeProject, ...parts].join('/')
 }
 
@@ -61,11 +56,7 @@ export function getNormalizedUploadPathWithoutProject(file: File, projectName: s
   const parts = splitPath(full)
   const safeProject = (projectName || '').trim()
   
-  // ddl/로 시작하는 경로는 그대로 반환
-  if (parts.length > 0 && parts[0]?.toLowerCase() === 'ddl') {
-    return parts.join('/')
-  }
-  
+  // projectName을 제거 (모든 경로에서)
   if (safeProject && parts[0] === safeProject) return parts.slice(1).join('/')
   return parts.join('/')
 }

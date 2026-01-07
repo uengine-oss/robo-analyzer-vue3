@@ -23,6 +23,19 @@ import type {
   StreamMessage
 } from '@/types'
 
+// 그래프 이벤트 타입 (노드/관계 생성 정보)
+export interface GraphEvent {
+  id: string
+  type: 'node' | 'relationship'
+  action: 'created' | 'updated' | 'deleted'
+  nodeType?: string
+  nodeName?: string
+  relType?: string
+  source?: string
+  target?: string
+  timestamp: string
+}
+
 import { useSessionStore } from './session'
 import { antlrApi, roboApi, ingestApi } from '@/services/api'
 
@@ -105,7 +118,7 @@ export const useProjectStore = defineStore('project', () => {
   
   const isProcessing = ref(false)
   const currentStep = ref('')
-  const totalSteps = ref(4) // 업로드, 파싱, 분석, 인제스천
+  const totalSteps = ref(3) // 업로드, 파싱, 분석
   const completedSteps = ref(0)
   
   // ==========================================================================
@@ -113,6 +126,13 @@ export const useProjectStore = defineStore('project', () => {
   // ==========================================================================
   
   const consoleMessages = ref<StreamMessage[]>([])
+  
+  // ==========================================================================
+  // 상태 - 그래프 이벤트 (노드/관계 생성 실시간 피드)
+  // ==========================================================================
+  
+  const graphEvents = ref<GraphEvent[]>([])
+  let graphEventIdCounter = 0
   
   // ==========================================================================
   // Computed - 그래프 데이터
@@ -209,6 +229,83 @@ export const useProjectStore = defineStore('project', () => {
     consoleMessages.value = []
   }
   
+  /**
+   * 그래프 이벤트 추가 (노드/관계 생성 시)
+   */
+  function addGraphEvent(event: Omit<GraphEvent, 'id' | 'timestamp'>): void {
+    graphEventIdCounter++
+    graphEvents.value.push({
+      ...event,
+      id: `ge-${graphEventIdCounter}`,
+      timestamp: createTimestamp()
+    })
+    
+    // 최대 500개만 유지
+    if (graphEvents.value.length > 500) {
+      graphEvents.value = graphEvents.value.slice(-500)
+    }
+  }
+  
+  /**
+   * 그래프 이벤트 초기화
+   */
+  function clearGraphEvents(): void {
+    graphEvents.value = []
+    graphEventIdCounter = 0
+  }
+  
+  /**
+   * Neo4j 그래프에서 이벤트 추출 및 추가
+   */
+  function extractAndAddGraphEvents(nodes: Neo4jNode[], relationships: Neo4jRelationship[]): void {
+    // 노드 이벤트 추가
+    for (const node of nodes) {
+      const labels = node['Labels'] || []
+      const properties = node['Properties'] || {}
+      const nodeType = labels[0] || 'Unknown'
+      
+      // 노드 이름 결정 (우선순위: name, procedure_name, class_name, fileName)
+      const nodeName = String(
+        properties['name'] || 
+        properties['procedure_name'] || 
+        properties['class_name'] ||
+        properties['fileName'] ||
+        node['Node ID']
+      )
+      
+      addGraphEvent({
+        type: 'node',
+        action: 'created',
+        nodeType,
+        nodeName
+      })
+    }
+    
+    // 관계 이벤트 추가
+    for (const rel of relationships) {
+      const relType = rel['Type'] || 'Unknown'
+      
+      // 소스/타겟 노드 이름 찾기
+      const sourceNode = nodes.find(n => n['Node ID'] === rel['Start Node ID'])
+      const targetNode = nodes.find(n => n['Node ID'] === rel['End Node ID'])
+      
+      const sourceName = sourceNode 
+        ? String(sourceNode['Properties']?.['name'] || sourceNode['Properties']?.['procedure_name'] || rel['Start Node ID'])
+        : rel['Start Node ID']
+      const targetName = targetNode
+        ? String(targetNode['Properties']?.['name'] || targetNode['Properties']?.['procedure_name'] || rel['End Node ID'])
+        : rel['End Node ID']
+      
+      addGraphEvent({
+        type: 'relationship',
+        action: 'created',
+        relType,
+        source: sourceName,
+        target: targetName
+      })
+    }
+  }
+  
   
   // ==========================================================================
   // Actions - Setters
@@ -275,6 +372,7 @@ export const useProjectStore = defineStore('project', () => {
   async function doAnalyze(): Promise<void> {
     currentStep.value = '[3단계] 🧠 AI 분석 진행 중...'
     clearGraphData()
+    clearGraphEvents()
     addMessage('message', '🔍 분석 시작...')
     
     await roboApi.analyze(
@@ -287,7 +385,11 @@ export const useProjectStore = defineStore('project', () => {
         
         const graph = event.graph
         if (graph?.Nodes || graph?.Relationships) {
+          // 그래프 데이터 업데이트
           updateGraphData(graph.Nodes || [], graph.Relationships || [])
+          
+          // 그래프 이벤트 추출 (실시간 피드용)
+          extractAndAddGraphEvents(graph.Nodes || [], graph.Relationships || [])
         }
       }
     )
@@ -326,6 +428,56 @@ export const useProjectStore = defineStore('project', () => {
     } catch (error) {
       console.warn('기존 데이터 확인 실패:', error)
       return { hasData: false, nodeCount: 0 }
+    }
+  }
+  
+  /**
+   * Neo4j에서 기존 그래프 데이터 로드
+   */
+  async function loadExistingGraphData(): Promise<boolean> {
+    try {
+      addMessage('message', '📥 기존 그래프 데이터 로드 중...')
+      
+      const result = await roboApi.getGraphData(sessionStore.getHeaders())
+      
+      // 디버깅: 로드된 데이터 상세 분석
+      console.log('[loadExistingGraphData] 백엔드 응답:', {
+        노드수: result.Nodes?.length || 0,
+        관계수: result.Relationships?.length || 0
+      })
+      
+      if (result.Relationships && result.Relationships.length > 0) {
+        // 관계 타입별 개수 분석
+        const relTypeCounts: Record<string, number> = {}
+        for (const rel of result.Relationships) {
+          const type = rel.Type || 'UNKNOWN'
+          relTypeCounts[type] = (relTypeCounts[type] || 0) + 1
+        }
+        console.log('[loadExistingGraphData] 관계 타입별 개수:', relTypeCounts)
+      }
+      
+      if (result.Nodes && result.Nodes.length > 0) {
+        // 노드 라벨별 개수 분석
+        const labelCounts: Record<string, number> = {}
+        for (const node of result.Nodes) {
+          const labels = node.Labels || ['UNKNOWN']
+          for (const label of labels) {
+            labelCounts[label] = (labelCounts[label] || 0) + 1
+          }
+        }
+        console.log('[loadExistingGraphData] 노드 라벨별 개수:', labelCounts)
+        
+        updateGraphData(result.Nodes, result.Relationships || [])
+        addMessage('message', `✅ 그래프 데이터 로드 완료: ${result.Nodes.length}개 노드, ${result.Relationships?.length || 0}개 관계`)
+        return true
+      } else {
+        addMessage('message', 'ℹ️ 기존 그래프 데이터가 없습니다.')
+        return false
+      }
+    } catch (error) {
+      console.warn('기존 그래프 데이터 로드 실패:', error)
+      addMessage('error', `❌ 그래프 데이터 로드 실패: ${error}`)
+      return false
     }
   }
   
@@ -372,11 +524,11 @@ export const useProjectStore = defineStore('project', () => {
       // 2. 파싱
       await doParse()
       
-      // 3. 분석
+      // 3. 분석 (DDL 파싱 및 Neo4j 저장 포함)
       await doAnalyze()
       
-      // 4. 인제스천
-      await doIngest()
+      // 참고: 4단계 인제스천(doIngest)은 robo-analyzer에서 불필요
+      // robo-analyzer는 분석 과정에서 이미 DDL을 파싱하여 Neo4j에 저장함
       
       currentStep.value = '전체 처리 완료'
       addMessage('message', '🎉 전체 처리가 완료되었습니다!')
@@ -446,6 +598,7 @@ export const useProjectStore = defineStore('project', () => {
     totalSteps,
     completedSteps,
     consoleMessages,
+    graphEvents,
     
     // Computed (하위호환성: uploadMessages로도 접근 가능)
     uploadMessages: consoleMessages,
@@ -462,8 +615,13 @@ export const useProjectStore = defineStore('project', () => {
     addMessage,
     clearMessages,
     
+    // Actions - Graph Events
+    addGraphEvent,
+    clearGraphEvents,
+    
     // Actions - Pipeline
     uploadFiles,
+    loadExistingGraphData,
     
     // Actions - Misc
     deleteAllData,

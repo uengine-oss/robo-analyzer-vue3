@@ -22,15 +22,30 @@ const {
   isProcessing, 
   currentStep, 
   sourceType,
-  consoleMessages
+  consoleMessages,
+  graphEvents,
+  totalSteps,
+  completedSteps
 } = storeToRefs(projectStore)
 
 const MAX_SEARCH_RESULTS = 8
 
-const activeView = ref<'graph' | 'uml' | 'schema'>('graph')
+const activeView = ref<'graph' | 'uml' | 'schema'>('schema')
 const showNodePanel = ref(false)
 const showConsole = ref(false)
 const showSearch = ref(false)
+const showProgressPanel = ref(true) // 진행 패널 표시 (분석 중일 때)
+const progressPanelCollapsed = ref(false) // 진행 패널 축소 상태
+const labelFilters = ref<string[]>([]) // 레전드 필터 (노드 라벨)
+
+// 진행 패널 리사이즈
+const { value: progressPanelWidth, isResizing: isProgressResizing, startResize: startProgressResize } = useResize({
+  direction: 'horizontal',
+  initialValue: 340,
+  min: 280,
+  max: 500,
+  fromEnd: true
+})
 
 // 노드 패널 리사이즈
 const { value: panelWidth, isResizing: isPanelResizing, startResize: startPanelResize } = useResize({
@@ -60,7 +75,7 @@ const selectedClasses = ref<Array<{ className: string; directory: string }>>([])
 
 // 설정에서 값 가져오기 (localStorage 또는 기본값)
 const umlDepth = ref(3)
-const nodeLimit = ref(500)
+const nodeLimit = ref(2000)
 
 // localStorage에서 값 로드 (안전하게)
 try {
@@ -108,6 +123,78 @@ const statusType = computed(() => {
   if (isProcessing.value) return 'processing'
   return 'idle'
 })
+
+// 진행률 계산
+const progress = computed(() => {
+  if (totalSteps.value === 0) return 0
+  return Math.round((completedSteps.value / totalSteps.value) * 100)
+})
+
+// 완료 여부
+const isCompleted = computed(() => 
+  completedSteps.value >= totalSteps.value && !isProcessing.value
+)
+
+// 그래프 통계
+const graphStats = computed(() => {
+  const nodes = graphEvents.value?.filter(e => e.type === 'node') || []
+  const rels = graphEvents.value?.filter(e => e.type === 'relationship') || []
+  
+  const nodeTypes: Record<string, number> = {}
+  nodes.forEach(n => {
+    const type = n.nodeType || 'Unknown'
+    nodeTypes[type] = (nodeTypes[type] || 0) + 1
+  })
+  
+  const relTypes: Record<string, number> = {}
+  rels.forEach(r => {
+    const type = r.relType || 'Unknown'
+    relTypes[type] = (relTypes[type] || 0) + 1
+  })
+  
+  return {
+    totalNodes: nodes.length,
+    totalRels: rels.length,
+    nodeTypes,
+    relTypes
+  }
+})
+
+// 최근 이벤트 (최대 30개)
+const recentEvents = computed(() => {
+  return [...(graphEvents.value || [])].slice(-30)
+})
+
+// 노드 타입별 색상
+function getNodeColor(nodeType: string): string {
+  const colors: Record<string, string> = {
+    'CLASS': '#60a5fa',
+    'METHOD': '#34d399',
+    'INTERFACE': '#a78bfa',
+    'PROCEDURE': '#f472b6',
+    'FUNCTION': '#fbbf24',
+    'Table': '#22d3ee',
+    'Column': '#94a3b8',
+    'UserStory': '#fb923c',
+    'TRIGGER': '#ef4444',
+  }
+  return colors[nodeType] || '#6b7280'
+}
+
+// 관계 타입별 색상  
+function getRelColor(relType: string): string {
+  const colors: Record<string, string> = {
+    'CALLS': '#60a5fa',
+    'EXTENDS': '#a78bfa',
+    'IMPLEMENTS': '#f472b6',
+    'HAS_COLUMN': '#22d3ee',
+    'FK_TO': '#fbbf24',
+    'READS': '#34d399',
+    'WRITES': '#ef4444',
+    'PARENT_OF': '#94a3b8',
+  }
+  return colors[relType] || '#6b7280'
+}
 
 const hasGraph = computed(() => graphData.value?.nodes.length > 0)
 const showUmlTab = computed(() => sourceType.value === 'java' || sourceType.value === 'python')
@@ -236,6 +323,27 @@ function handleStyleUpdated(): void {
   nvlGraphRef.value?.updateNodeStyles()
 }
 
+/**
+ * 레전드 필터 핸들러 (토글 방식)
+ */
+function handleLabelFilter(label: string): void {
+  const index = labelFilters.value.indexOf(label)
+  if (index === -1) {
+    // 필터에 추가
+    labelFilters.value = [...labelFilters.value, label]
+  } else {
+    // 필터에서 제거
+    labelFilters.value = labelFilters.value.filter(l => l !== label)
+  }
+}
+
+/**
+ * 모든 필터 초기화
+ */
+function handleClearFilters(): void {
+  labelFilters.value = []
+}
+
 function handleNodeDelete(nodeId: string): void {
   // Store의 deleteNodeAndRelationships 메서드 사용
   projectStore.deleteNodeAndRelationships(nodeId)
@@ -270,6 +378,7 @@ watch(hasGraph, (has, prev) => {
             :selectedNodeId="selectedNode?.id"
             :selectedRelationshipId="selectedRelationship?.id"
             :maxNodes="nodeLimit"
+            :labelFilters="labelFilters"
             @node-select="handleNodeSelect"
             @relationship-select="handleRelationshipSelect"
             @node-delete="handleNodeDelete"
@@ -316,10 +425,11 @@ watch(hasGraph, (has, prev) => {
     <div class="floating-controls left-top">
       <div class="view-switcher">
         <button 
-          :class="{ active: activeView === 'graph' }"
-          @click="activeView = 'graph'"
+          :class="{ active: activeView === 'schema', disabled: !showSchemaTab }"
+          :disabled="!showSchemaTab"
+          @click="activeView = 'schema'"
         >
-          Graph
+          스키마
         </button>
         <button 
           :class="{ active: activeView === 'uml', disabled: !showUmlTab }"
@@ -329,11 +439,10 @@ watch(hasGraph, (has, prev) => {
           UML
         </button>
         <button 
-          :class="{ active: activeView === 'schema', disabled: !showSchemaTab }"
-          :disabled="!showSchemaTab"
-          @click="activeView = 'schema'"
+          :class="{ active: activeView === 'graph' }"
+          @click="activeView = 'graph'"
         >
-          스키마
+          Graph
         </button>
       </div>
       
@@ -400,8 +509,11 @@ watch(hasGraph, (has, prev) => {
             :isProcessing="isProcessing"
             :isLimitApplied="nvlGraphRef?.isLimitApplied?.() ?? false"
             :maxDisplayNodes="nodeLimit"
+            :activeFilters="labelFilters"
             @node-type-select="handleNodeTypeSelect"
             @style-updated="handleStyleUpdated"
+            @label-filter="handleLabelFilter"
+            @clear-filters="handleClearFilters"
           />
         </div>
         <!-- 리사이즈 핸들 -->
@@ -425,6 +537,111 @@ watch(hasGraph, (has, prev) => {
             />
           </div>
         </Transition>
+      </div>
+    </Transition>
+    
+    <!-- 플로팅: 진행 패널 (분석 중일 때 표시) -->
+    <Transition name="slide-right">
+      <div 
+        v-if="isProcessing || (graphEvents.length > 0 && !isCompleted)"
+        class="floating-progress-panel"
+        :class="{ collapsed: progressPanelCollapsed }"
+        :style="{ width: progressPanelCollapsed ? '48px' : `${progressPanelWidth}px` }"
+      >
+        <!-- 리사이즈 핸들 -->
+        <div 
+          v-if="!progressPanelCollapsed"
+          class="progress-resize-handle"
+          :class="{ resizing: isProgressResizing }"
+          @mousedown="startProgressResize"
+        ></div>
+        
+        <!-- 축소 상태 -->
+        <div v-if="progressPanelCollapsed" class="collapsed-content" @click="progressPanelCollapsed = false">
+          <div class="collapsed-indicator" :class="statusType">
+            <span class="spinner-mini" v-if="isProcessing"></span>
+            <span v-else>✓</span>
+          </div>
+          <span class="collapsed-label">진행</span>
+          <span class="collapsed-count">{{ graphStats.totalNodes }}</span>
+        </div>
+        
+        <!-- 확장 상태 -->
+        <template v-else>
+          <div class="progress-header">
+            <div class="header-title">
+              <span class="status-indicator" :class="statusType">
+                <span class="spinner-mini" v-if="isProcessing"></span>
+              </span>
+              <span>분석 진행</span>
+            </div>
+            <button class="collapse-btn" @click="progressPanelCollapsed = true" title="최소화">
+              ›
+            </button>
+          </div>
+          
+          <!-- 진행바 -->
+          <div class="progress-bar-section">
+            <div class="progress-info">
+              <span class="step-label">{{ currentStep }}</span>
+              <span class="progress-percent">{{ progress }}%</span>
+            </div>
+            <div class="progress-track">
+              <div 
+                class="progress-fill"
+                :class="{ completed: isCompleted }"
+                :style="{ width: `${progress}%` }"
+              ></div>
+            </div>
+          </div>
+          
+          <!-- 통계 -->
+          <div class="stats-row">
+            <div class="stat-item">
+              <span class="stat-icon">📦</span>
+              <span class="stat-value">{{ graphStats.totalNodes }}</span>
+              <span class="stat-label">노드</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-icon">🔗</span>
+              <span class="stat-value">{{ graphStats.totalRels }}</span>
+              <span class="stat-label">관계</span>
+            </div>
+          </div>
+          
+          <!-- 이벤트 스트림 -->
+          <div class="event-stream">
+            <TransitionGroup name="event-item" tag="div" class="event-list">
+              <div 
+                v-for="event in recentEvents" 
+                :key="event.id"
+                class="event-item"
+                :class="event.type"
+              >
+                <template v-if="event.type === 'node'">
+                  <span 
+                    class="type-tag"
+                    :style="{ backgroundColor: getNodeColor(event.nodeType || '') + '25', color: getNodeColor(event.nodeType || '') }"
+                  >{{ event.nodeType }}</span>
+                  <span class="event-name">{{ event.nodeName }}</span>
+                </template>
+                <template v-else>
+                  <span class="rel-from">{{ event.source }}</span>
+                  <span 
+                    class="rel-tag"
+                    :style="{ color: getRelColor(event.relType || '') }"
+                  >→</span>
+                  <span class="rel-to">{{ event.target }}</span>
+                </template>
+              </div>
+            </TransitionGroup>
+            
+            <div v-if="!graphEvents.length" class="event-empty">
+              <span class="spinner-mini"></span>
+              <span>대기 중...</span>
+            </div>
+          </div>
+        </template>
       </div>
     </Transition>
     
@@ -1006,6 +1223,349 @@ watch(hasGraph, (has, prev) => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+// ============================================================================
+// 플로팅 진행 패널
+// ============================================================================
+
+.floating-progress-panel {
+  position: absolute;
+  top: 50px;
+  right: 10px;
+  bottom: 50px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  z-index: 95;
+  overflow: hidden;
+  transition: width 0.2s ease;
+  
+  &.collapsed {
+    cursor: pointer;
+    
+    &:hover {
+      background: var(--color-bg-tertiary);
+    }
+  }
+  
+  .progress-resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    cursor: col-resize;
+    @include resize-handle-base;
+  }
+}
+
+.collapsed-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.collapsed-indicator {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+  
+  &.processing {
+    background: var(--color-accent);
+  }
+  
+  &.success {
+    background: var(--color-success);
+  }
+  
+  &.error {
+    background: var(--color-error);
+  }
+  
+  &.idle {
+    background: var(--color-text-muted);
+  }
+}
+
+.collapsed-label {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-light);
+}
+
+.collapsed-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-bright);
+}
+
+.status-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  &.processing {
+    background: var(--color-accent);
+  }
+  
+  &.success {
+    background: var(--color-success);
+  }
+  
+  &.error {
+    background: var(--color-error);
+  }
+}
+
+.spinner-mini {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.collapse-btn {
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-light);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  
+  &:hover {
+    background: var(--color-bg-elevated);
+    color: var(--color-text-bright);
+  }
+}
+
+.progress-bar-section {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.step-label {
+  font-size: 11px;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.progress-percent {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.progress-track {
+  height: 4px;
+  background: var(--color-bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent) 0%, var(--color-accent-hover) 100%);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  
+  &.completed {
+    background: linear-gradient(90deg, var(--color-success) 0%, #4ade80 100%);
+  }
+}
+
+.stats-row {
+  display: flex;
+  gap: 16px;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-icon {
+  font-size: 12px;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text-bright);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.event-stream {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  min-height: 0;
+  
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 2px;
+  }
+}
+
+.event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  animation: eventSlideIn 0.2s ease;
+  
+  &:hover {
+    background: var(--color-bg-tertiary);
+  }
+}
+
+@keyframes eventSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.event-item-enter-active {
+  animation: eventSlideIn 0.2s ease;
+}
+
+.event-item-leave-active {
+  animation: eventSlideIn 0.2s ease reverse;
+}
+
+.event-item-move {
+  transition: transform 0.2s ease;
+}
+
+.type-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.event-name {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rel-from,
+.rel-to {
+  color: var(--color-text);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rel-tag {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.event-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100px;
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 // ============================================================================

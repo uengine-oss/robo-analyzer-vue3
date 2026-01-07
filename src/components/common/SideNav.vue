@@ -44,7 +44,8 @@ const navItems: NavItem[] = [
   { id: 'graph', label: '메타데이터', icon: IconDatabase },
   { id: 'lineage', label: '데이터 리니지', icon: IconLineage },
   { id: 'glossary', label: '용어 관리', icon: IconBook },
-  { id: 'text2sql', label: '자연어 질의', icon: IconMessageSquare }
+  { id: 'text2sql', label: '자연어 질의', icon: IconMessageSquare },
+  { id: 'langchain', label: 'LangChain 질의', icon: IconMessageSquare }
 ]
 
 const observabilityGroup: NavGroup = {

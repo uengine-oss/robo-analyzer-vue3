@@ -305,6 +305,11 @@ export interface ReactPhaseData {
 /** ReAct 스트림 이벤트 */
 export type ReactStreamEvent =
   | {
+      event: 'token'
+      iteration: number
+      token: string
+    }
+  | {
       event: 'phase'
       phase: 'thinking' | 'reasoning' | 'acting' | 'observing'
       iteration: number

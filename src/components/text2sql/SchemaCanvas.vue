@@ -6,6 +6,7 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import TableNode from './nodes/TableNode.vue'
 import TableDetailPanel from './TableDetailPanel.vue'
+import CardinalityModal, { type ConnectionInfo, type Cardinality } from './CardinalityModal.vue'
 import { useSchemaCanvasStore } from '@/stores/schemaCanvas'
 import type { Text2SqlTableInfo } from '@/types'
 import { IconTable, IconSearch, IconRefresh, IconTrash, IconZoomIn, IconZoomOut, IconMaximize, IconLink } from '@/components/icons'
@@ -14,6 +15,10 @@ const store = useSchemaCanvasStore()
 const isDragOver = ref(false)
 const searchQuery = ref('')
 const isConnecting = ref(false)
+
+// Cardinality Modal State
+const isCardinalityModalOpen = ref(false)
+const pendingConnection = ref<ConnectionInfo | null>(null)
 
 const { fitView, zoomIn, zoomOut } = useVueFlow()
 
@@ -125,34 +130,77 @@ function onPaneClick() {
   store.clearSelection()
 }
 
-// Handle edge connection
-async function onConnect(connection: Connection) {
+// Handle edge connection - show cardinality modal
+function onConnect(connection: Connection) {
   if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) {
     return
   }
   
   const fromTable = connection.source.replace('table-', '')
   const toTable = connection.target.replace('table-', '')
-  const fromColumn = connection.sourceHandle.replace('col-', '').replace('-out', '')
-  const toColumn = connection.targetHandle.replace('col-', '').replace('-out', '')
+  
+  // Parse column from handle ID
+  let fromColumn = connection.sourceHandle
+  if (fromColumn.startsWith('fk-')) {
+    fromColumn = fromColumn.replace('fk-', '').replace('-source', '')
+  } else if (fromColumn.startsWith('col-')) {
+    fromColumn = fromColumn.replace('col-', '').replace('-out', '')
+  }
+  
+  let toColumn = connection.targetHandle
+  if (toColumn.startsWith('pk-')) {
+    toColumn = toColumn.replace('pk-', '').replace('-right', '')
+  } else if (toColumn.startsWith('col-')) {
+    toColumn = toColumn.replace('col-', '').replace('-out', '')
+  }
+  
+  // Store pending connection and show modal
+  pendingConnection.value = {
+    fromTable,
+    fromColumn,
+    toTable,
+    toColumn
+  }
+  isCardinalityModalOpen.value = true
+}
+
+// Handle cardinality modal confirmation
+async function handleCardinalityConfirm(cardinality: Cardinality, description: string) {
+  if (!pendingConnection.value) return
+  
+  const { fromTable, fromColumn, toTable, toColumn } = pendingConnection.value
+  
+  // Create description with cardinality
+  const fullDescription = description 
+    ? `[${cardinality}] ${description}`
+    : `[${cardinality}] ${fromTable}.${fromColumn} → ${toTable}.${toColumn}`
   
   try {
     isConnecting.value = true
-    await store.addRelationship({
+    await store.addRelationshipWithCardinality({
       from_table: fromTable,
       from_schema: 'public',
       from_column: fromColumn,
       to_table: toTable,
       to_schema: 'public',
       to_column: toColumn,
-      description: `${fromColumn} → ${toColumn}`
+      description: fullDescription,
+      cardinality
     })
+    
+    isCardinalityModalOpen.value = false
+    pendingConnection.value = null
   } catch (error) {
     console.error('Failed to create relationship:', error)
     alert('릴레이션 생성에 실패했습니다.')
   } finally {
     isConnecting.value = false
   }
+}
+
+function handleCardinalityModalClose() {
+  isCardinalityModalOpen.value = false
+  pendingConnection.value = null
 }
 
 function onConnectStart() {
@@ -195,6 +243,28 @@ async function handleRefresh() {
         <button class="panel-action" @click="handleRefresh" title="새로고침">
           <IconRefresh :size="14" />
         </button>
+      </div>
+      
+      <!-- Data Source Selector -->
+      <div class="data-source-selector">
+        <label>
+          <input 
+            type="radio" 
+            value="robo"
+            :checked="store.dataSource === 'robo'"
+            @change="() => store.setDataSource('robo')"
+          />
+          <span>Neo4j (분석결과)</span>
+        </label>
+        <label>
+          <input 
+            type="radio" 
+            value="text2sql"
+            :checked="store.dataSource === 'text2sql'"
+            @change="() => store.setDataSource('text2sql')"
+          />
+          <span>PostgreSQL</span>
+        </label>
       </div>
       
       <!-- Search -->
@@ -306,8 +376,7 @@ async function handleRefresh() {
         :zoom-on-scroll="true"
         :prevent-scrolling="true"
         :connect-on-click="false"
-        connection-mode="loose"
-        :default-edge-options="{ type: 'smoothstep', animated: true, style: { stroke: '#228be6', strokeWidth: 2 } }"
+        :default-edge-options="{ type: 'smoothstep', animated: true }"
         fit-view-on-init
         @nodes-change="onNodesChange"
         @node-click="onNodeClick"
@@ -317,6 +386,102 @@ async function handleRefresh() {
         @connect-start="onConnectStart"
         @connect-end="onConnectEnd"
       >
+        <!-- Custom ERD Markers -->
+        <template #connection-line="{ sourceX, sourceY, targetX, targetY }">
+          <path
+            :d="`M${sourceX},${sourceY} C ${sourceX + 50},${sourceY} ${targetX - 50},${targetY} ${targetX},${targetY}`"
+            fill="none"
+            stroke="#40c057"
+            stroke-width="2"
+            stroke-dasharray="5,5"
+          />
+        </template>
+        
+        <!-- SVG Defs for ERD Markers -->
+        <svg style="position: absolute; width: 0; height: 0;">
+          <defs>
+            <!-- Crow's Foot (Many) Marker -->
+            <marker
+              id="crowfoot-many"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="12"
+              markerHeight="12"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0,10 L 18,0 M 0,10 L 18,10 M 0,10 L 18,20" 
+                    fill="none" stroke="#228be6" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+            
+            <!-- One Marker -->
+            <marker
+              id="erd-one"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="10"
+              markerHeight="10"
+              orient="auto-start-reverse"
+            >
+              <line x1="16" y1="2" x2="16" y2="18" stroke="#228be6" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+            
+            <!-- One Marker (Green for 1:1) -->
+            <marker
+              id="erd-one-green"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="10"
+              markerHeight="10"
+              orient="auto-start-reverse"
+            >
+              <line x1="16" y1="2" x2="16" y2="18" stroke="#40c057" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+            
+            <!-- Crow's Foot (Many) Marker - Purple for N:N -->
+            <marker
+              id="crowfoot-many-purple"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="12"
+              markerHeight="12"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0,10 L 18,0 M 0,10 L 18,10 M 0,10 L 18,20" 
+                    fill="none" stroke="#be4bdb" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+            
+            <!-- Gray markers for auto-detected FK -->
+            <marker
+              id="crowfoot-many-gray"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="12"
+              markerHeight="12"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0,10 L 18,0 M 0,10 L 18,10 M 0,10 L 18,20" 
+                    fill="none" stroke="#868e96" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+            
+            <marker
+              id="erd-one-gray"
+              viewBox="0 0 20 20"
+              refX="18"
+              refY="10"
+              markerWidth="10"
+              markerHeight="10"
+              orient="auto-start-reverse"
+            >
+              <line x1="16" y1="2" x2="16" y2="18" stroke="#868e96" stroke-width="2" stroke-linecap="round"/>
+            </marker>
+          </defs>
+        </svg>
+        
         <Background pattern-color="#2a2a3a" :gap="20" />
         <Controls position="bottom-left" />
         <MiniMap 
@@ -375,6 +540,14 @@ async function handleRefresh() {
     
     <!-- Right Panel: Table Details -->
     <TableDetailPanel />
+    
+    <!-- Cardinality Modal -->
+    <CardinalityModal
+      :is-open="isCardinalityModalOpen"
+      :connection="pendingConnection"
+      @close="handleCardinalityModalClose"
+      @confirm="handleCardinalityConfirm"
+    />
   </div>
 </template>
 
@@ -444,40 +617,15 @@ async function handleRefresh() {
   }
 }
 
-/* 연결 중인 선 스타일 - 더 눈에 잘 띄게 */
 .vue-flow__connection-line {
-  stroke: #40c057 !important;
-  stroke-width: 3 !important;
-  stroke-dasharray: 8 4 !important;
-}
-
-/* 핸들 스타일 */
-.vue-flow__handle {
-  width: 14px !important;
-  height: 14px !important;
-  background: #228be6 !important;
-  border: 2px solid #fff !important;
-  cursor: crosshair !important;
+  stroke: var(--color-accent, #228be6) !important;
+  stroke-width: 2 !important;
+  stroke-dasharray: 5 !important;
 }
 
 .vue-flow__handle:hover {
-  background: #40c057 !important;
-  transform: scale(1.4) !important;
-  box-shadow: 0 0 12px rgba(64, 192, 87, 0.8) !important;
-}
-
-.vue-flow__handle.connectable {
-  cursor: crosshair !important;
-}
-
-.vue-flow__handle.connecting {
-  background: #40c057 !important;
-  animation: pulse-handle 0.5s ease-in-out infinite !important;
-}
-
-@keyframes pulse-handle {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.3); }
+  background: var(--color-accent, #228be6) !important;
+  transform: scale(1.5) !important;
 }
 </style>
 
@@ -546,6 +694,32 @@ async function handleRefresh() {
 }
 
 /* Search */
+.data-source-selector {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  
+  label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    
+    input[type="radio"] {
+      margin: 0;
+      accent-color: var(--color-primary);
+    }
+    
+    &:hover {
+      color: var(--color-text);
+    }
+  }
+}
+
 .search-box {
   display: flex;
   align-items: center;

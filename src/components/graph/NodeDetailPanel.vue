@@ -34,6 +34,7 @@ interface Props {
   isProcessing?: boolean
   isLimitApplied?: boolean  // limit 적용 여부
   maxDisplayNodes?: number  // 최대 표시 노드 수
+  activeFilters?: string[]  // 활성화된 필터 (노드 라벨)
 }
 
 interface PropertyItem {
@@ -64,12 +65,15 @@ const props = withDefaults(defineProps<Props>(), {
   hiddenNodes: 0,
   isProcessing: false,
   isLimitApplied: false,
-  maxDisplayNodes: 500
+  maxDisplayNodes: 2000,
+  activeFilters: () => []
 })
 
 const emit = defineEmits<{
   'node-type-select': [nodeType: string, topOffset: number]
   'style-updated': []
+  'label-filter': [label: string]
+  'clear-filters': []
 }>()
 
 
@@ -208,10 +212,18 @@ function toggleExpand(key: string): void {
 }
 
 /**
- * 노드 타입 선택 핸들러
+ * 노드 타입 필터 핸들러 (클릭 시 해당 라벨로 필터링)
+ */
+function handleLabelFilter(label: string): void {
+  emit('label-filter', label)
+}
+
+/**
+ * 노드 타입 스타일 선택 핸들러 (우클릭 시 색상 변경)
  * 클릭한 라벨의 세로 중앙 위치를 계산하여 스타일 패널 위치 결정
  */
-function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
+function handleNodeTypeContextMenu(event: MouseEvent, nodeType: string): void {
+  event.preventDefault()
   const target = event.currentTarget as HTMLElement
   const panelBody = target.closest('.panel-body') as HTMLElement
   const panelHeader = target.closest('.floating-panel')?.querySelector('.panel-header') as HTMLElement
@@ -231,6 +243,27 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   const topOffset = panelHeaderHeight + labelCenterY
   
   emit('node-type-select', nodeType, Math.max(0, topOffset))
+}
+
+/**
+ * 필터가 활성화되어 있는지 확인
+ */
+function isFilterActive(label: string): boolean {
+  return props.activeFilters?.includes(label) ?? false
+}
+
+/**
+ * 전체 필터가 적용되어 있는지
+ */
+function hasActiveFilters(): boolean {
+  return (props.activeFilters?.length ?? 0) > 0
+}
+
+/**
+ * 필터 초기화
+ */
+function handleClearFilters(): void {
+  emit('clear-filters')
 }
 
 
@@ -337,15 +370,33 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
       <div class="stats-wrapper">
         <!-- Node labels 섹션 -->
         <div class="stats-section">
-          <div class="section-title">Node labels</div>
+          <div class="section-header">
+            <span class="section-title">Node labels</span>
+            <button 
+              v-if="hasActiveFilters()" 
+              class="clear-filter-btn"
+              @click="handleClearFilters"
+              title="필터 초기화"
+            >
+              ✕ 필터 해제
+            </button>
+          </div>
           <div class="badge-container">
-            <span class="stat-badge total">* ({{ totalNodes }})</span>
+            <span 
+              class="stat-badge total clickable"
+              :class="{ dimmed: hasActiveFilters() }"
+              @click="handleClearFilters"
+              title="전체 보기"
+            >* ({{ totalNodes }})</span>
             <span 
               v-for="stat in sortedNodeStats" 
               :key="stat.label"
               class="stat-badge clickable"
+              :class="{ active: isFilterActive(stat.label), dimmed: hasActiveFilters() && !isFilterActive(stat.label) }"
               :style="{ background: stat.color }"
-              @click="handleNodeTypeClick($event, stat.label)"
+              @click="handleLabelFilter(stat.label)"
+              @contextmenu="handleNodeTypeContextMenu($event, stat.label)"
+              :title="`클릭: 필터링 / 우클릭: 색상 변경`"
             >
               {{ stat.label }} ({{ stat.count }})
             </span>
@@ -507,10 +558,32 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   white-space: nowrap;
   background: var(--color-bg-tertiary);
   border-right: 1px solid var(--color-border);
+  
+  // 텍스트 선택시 가시성 보장
+  ::selection {
+    background: var(--color-accent);
+    color: white;
+  }
+  
+  ::-moz-selection {
+    background: var(--color-accent);
+    color: white;
+  }
 }
 
 .cell-value {
   background: var(--color-bg);
+  
+  // 텍스트 선택시 가시성 보장
+  ::selection {
+    background: #1c7ed6;
+    color: white;
+  }
+  
+  ::-moz-selection {
+    background: #1c7ed6;
+    color: white;
+  }
 }
 
 .cell-empty {
@@ -529,6 +602,17 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   font-size: 12px;
   color: var(--color-accent);
   line-height: 1.6;
+  
+  // 텍스트 선택시 가시성 보장
+  ::selection {
+    background: #1c7ed6;
+    color: white;
+  }
+  
+  ::-moz-selection {
+    background: #1c7ed6;
+    color: white;
+  }
   
   .value-content {
     display: -webkit-box;
@@ -582,11 +666,34 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
   flex-shrink: 0;
 }
 
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
 .section-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-bright);
-  margin-bottom: 12px;
+}
+
+.clear-filter-btn {
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(250, 82, 82, 0.15);
+  color: var(--color-error);
+  border: 1px solid rgba(250, 82, 82, 0.3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: rgba(250, 82, 82, 0.25);
+    border-color: var(--color-error);
+  }
 }
 
 .badge-container {
@@ -626,6 +733,20 @@ function handleNodeTypeClick(event: MouseEvent, nodeType: string): void {
     
     &:active {
       transform: scale(1.0);
+    }
+  }
+  
+  &.active {
+    box-shadow: 0 0 0 2px white, 0 0 0 4px var(--color-accent);
+    transform: scale(1.05);
+    z-index: 2;
+  }
+  
+  &.dimmed {
+    opacity: 0.4;
+    
+    &:hover {
+      opacity: 0.7;
     }
   }
 }

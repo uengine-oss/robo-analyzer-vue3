@@ -18,6 +18,34 @@ const handleDragLeave = () => {
   isDragOver.value = false
 }
 
+// 시스템/숨김 파일 필터링
+const IGNORED_FILES = ['.DS_Store', 'Thumbs.db', 'desktop.ini', '.gitignore', '.gitkeep']
+const IGNORED_FOLDERS = ['__MACOSX', '.git', 'node_modules', '.idea', '.vscode']
+
+const shouldIgnoreFile = (filePath: string): boolean => {
+  const parts = filePath.split('/')
+  const fileName = parts[parts.length - 1] || ''
+  
+  // 숨김 파일 (점으로 시작) - 단, .sql 등 확장자만 있는 경우는 제외
+  if (fileName.startsWith('.') && !fileName.match(/^\.[a-z]+$/i)) {
+    return true
+  }
+  
+  // 특정 파일명
+  if (IGNORED_FILES.includes(fileName)) {
+    return true
+  }
+  
+  // 특정 폴더 내 파일
+  for (const folder of IGNORED_FOLDERS) {
+    if (parts.includes(folder)) {
+      return true
+    }
+  }
+  
+  return false
+}
+
 const handleDrop = async (e: DragEvent) => {
   e.preventDefault()
   isDragOver.value = false
@@ -43,8 +71,15 @@ const handleDrop = async (e: DragEvent) => {
     files.push(...Array.from(e.dataTransfer.files))
   }
   
-  if (files.length > 0) {
-    emit('files-drop', files)
+  // 시스템/숨김 파일 필터링
+  const filteredFiles = files.filter(f => {
+    const filePath = f.webkitRelativePath || f.name
+    return !shouldIgnoreFile(filePath)
+  })
+  
+  if (filteredFiles.length > 0) {
+    console.log(`[DropZone] ${files.length}개 중 ${filteredFiles.length}개 파일 (${files.length - filteredFiles.length}개 시스템 파일 제외)`)
+    emit('files-drop', filteredFiles)
   }
 }
 

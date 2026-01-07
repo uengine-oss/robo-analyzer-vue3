@@ -62,6 +62,10 @@ export const useReactStore = defineStore('react', () => {
   const currentPhase = ref<ReactPhase>('idle')
   const currentIteration = ref<number>(0)
   const currentPhaseData = ref<ReactPhaseData | null>(null)
+  
+  // 토큰 스트리밍 상태
+  const streamingText = ref<string>('')
+  const isStreaming = ref<boolean>(false)
 
   // Computed
   const isRunning = computed(() => status.value === 'running')
@@ -89,6 +93,8 @@ export const useReactStore = defineStore('react', () => {
     currentPhase.value = 'idle'
     currentIteration.value = 0
     currentPhaseData.value = null
+    streamingText.value = ''
+    isStreaming.value = false
   }
 
   function cancelOngoing() {
@@ -133,12 +139,26 @@ export const useReactStore = defineStore('react', () => {
     try {
       for await (const event of text2sqlApi.reactStream(request, { signal: controller.signal })) {
         switch (event.event) {
+          case 'token': {
+            // LLM 토큰 스트리밍
+            if (!isStreaming.value) {
+              isStreaming.value = true
+              streamingText.value = ''
+            }
+            streamingText.value += event.token
+            currentIteration.value = event.iteration
+            break
+          }
           case 'phase': {
             // 실시간 진행 상태 업데이트
             currentPhase.value = event.phase
             currentIteration.value = event.iteration
             currentPhaseData.value = event.data
             applyStateSnapshot(event.state)
+            // thinking이 아닌 다른 phase로 전환되면 스트리밍 종료
+            if (event.phase !== 'thinking') {
+              isStreaming.value = false
+            }
             break
           }
           case 'step': {
@@ -147,6 +167,8 @@ export const useReactStore = defineStore('react', () => {
             // 스텝 완료 후 phase 초기화 (다음 스텝 대기)
             currentPhase.value = 'idle'
             currentPhaseData.value = null
+            streamingText.value = ''
+            isStreaming.value = false
             break
           }
           case 'needs_user_input': {
@@ -265,6 +287,9 @@ export const useReactStore = defineStore('react', () => {
     currentPhase,
     currentIteration,
     currentPhaseData,
+    // 토큰 스트리밍
+    streamingText,
+    isStreaming,
     // Computed
     isRunning,
     isWaitingUser,

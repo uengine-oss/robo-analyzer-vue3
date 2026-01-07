@@ -7,7 +7,6 @@ import DropZone from './DropZone.vue'
 import UploadModal from './UploadModal.vue'
 import UploadTree from './UploadTree.vue'
 import JsonViewer from './JsonViewer.vue'
-import AnalysisProgressModal from './AnalysisProgressModal.vue'
 import { buildUploadTreeFromUploadedFiles, uniqueFilesByRelPath } from '@/utils/upload'
 import { roboApi, type DetectTypesResponse } from '@/services/api'
 import type { FileTypeResult } from '@/services/api'
@@ -20,32 +19,15 @@ const {
   uploadedFiles, 
   uploadedDdlFiles,
   isProcessing,
-  currentStep,
-  projectName,
-  uploadMessages,
-  totalSteps,
-  completedSteps
+  projectName
 } = storeToRefs(projectStore)
 
-// 분석 진행 모달 표시 상태
-const showAnalysisModal = ref(false)
-
-// 프로세싱 시작 시 자동으로 모달 열기
+// 프로세싱 시작 시 그래프 탭으로 바로 이동 (실시간 그래프 렌더링)
 watch(isProcessing, (processing) => {
   if (processing) {
-    showAnalysisModal.value = true
-  }
-})
-
-// 모달 닫기 핸들러 - 완료 시 그래프 탭으로 이동
-const handleAnalysisModalClose = () => {
-  showAnalysisModal.value = false
-  
-  // 분석이 완료되었으면 그래프 탭으로 이동
-  if (completedSteps.value >= totalSteps.value && !isProcessing.value) {
     sessionStore.setActiveTab('graph')
   }
-}
+})
 
 // 업로드된 파일을 트리 구조로 표시
 const uploadedFileTree = computed(() => 
@@ -453,17 +435,6 @@ const activateTab = (tabId: string) => {
         </div>
       </div>
     </div>
-    
-    <!-- 분석 진행 모달 -->
-    <AnalysisProgressModal
-      :visible="showAnalysisModal"
-      :messages="uploadMessages"
-      :current-step="currentStep"
-      :is-processing="isProcessing"
-      :total-steps="totalSteps"
-      :completed-steps="completedSteps"
-      @close="handleAnalysisModalClose"
-    />
     
     <!-- 업로드 모달 -->
     <UploadModal 

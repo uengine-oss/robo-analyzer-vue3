@@ -32,6 +32,8 @@ interface Props {
   selectedRelationshipId?: string
   /** 최대 표시 노드 개수 */
   maxNodes?: number
+  /** 노드 라벨 필터 (비어있으면 전체 표시) */
+  labelFilters?: string[]
 }
 
 interface NodeStat {
@@ -50,7 +52,7 @@ const BATCH_SIZE = 20
 const BATCH_INTERVAL = 1000
 
 /** 기본 최대 표시 노드 개수 */
-const DEFAULT_MAX_NODES = 500
+const DEFAULT_MAX_NODES = 2000
 
 /** NVL 렌더러 옵션 */
 const NVL_OPTIONS = {
@@ -83,7 +85,8 @@ const NVL_OPTIONS = {
 // ============================================================================
 
 const props = withDefaults(defineProps<Props>(), {
-  maxNodes: DEFAULT_MAX_NODES
+  maxNodes: DEFAULT_MAX_NODES,
+  labelFilters: () => []
 })
 
 const emit = defineEmits<{
@@ -207,15 +210,48 @@ function isExpandableNode(nodeId: string): boolean {
 
 /**
  * 확장 가능한 노드 집합 업데이트
+ * 모든 관계 타입에서 숨겨진/표시되지 않은 노드와 연결된 노드를 확장 가능으로 표시
  */
 function updateExpandableNodes(): void {
   expandableNodeIds.clear()
   
-  for (const link of props.graphData.links) {
-    if (link.type === 'PARENT_OF') {
-      expandableNodeIds.add(link.source)
+  // 전체 노드 ID 집합 (graphData에 있는 모든 노드)
+  const allNodeIds = new Set(props.graphData.nodes.map(n => n.id))
+  
+  // 현재 표시된 노드 ID 집합 (nodeMap에서 가져옴, 숨김 제외)
+  const displayedNodeIds = new Set<string>()
+  for (const nodeId of nodeMap.keys()) {
+    if (!hiddenNodeIds.has(nodeId)) {
+      displayedNodeIds.add(nodeId)
     }
   }
+  
+  // 디버깅: 초기 상태 로그
+  console.log('[updateExpandableNodes] 상태:', {
+    전체노드수: allNodeIds.size,
+    표시된노드수: displayedNodeIds.size,
+    관계수: props.graphData.links.length
+  })
+  
+  // 모든 관계를 확인하여 확장 가능한 노드 찾기
+  for (const link of props.graphData.links) {
+    const sourceDisplayed = displayedNodeIds.has(link.source)
+    const targetDisplayed = displayedNodeIds.has(link.target)
+    const sourceExists = allNodeIds.has(link.source)
+    const targetExists = allNodeIds.has(link.target)
+    
+    // source가 표시되어 있고, target이 존재하지만 표시되지 않은 경우
+    if (sourceDisplayed && targetExists && !targetDisplayed) {
+      expandableNodeIds.add(link.source)
+    }
+    
+    // target이 표시되어 있고, source가 존재하지만 표시되지 않은 경우
+    if (targetDisplayed && sourceExists && !sourceDisplayed) {
+      expandableNodeIds.add(link.target)
+    }
+  }
+  
+  console.log('[updateExpandableNodes] 확장 가능 노드:', expandableNodeIds.size, '개')
 }
 
 /**
@@ -404,14 +440,22 @@ function enqueueRelationships(rels: NvlRelationship[]): void {
 // ============================================================================
 
 /**
+ * 노드가 필터에 맞는지 확인
+ */
+function matchesLabelFilter(node: GraphNode): boolean {
+  if (!props.labelFilters || props.labelFilters.length === 0) {
+    return true // 필터가 없으면 모든 노드 표시
+  }
+  const labels = node.labels || []
+  return labels.some(label => props.labelFilters!.includes(label))
+}
+
+/**
  * 그래프 데이터 동기화 (props → 내부 맵, 노드 limit 적용)
  */
 function syncGraphData(data: GraphData): { newNodes: NvlNode[]; newRels: NvlRelationship[] } {
   const newNodes: NvlNode[] = []
   const newRels: NvlRelationship[] = []
-  
-  // 확장 가능한 노드 업데이트
-  updateExpandableNodes()
   
   // 전체 노드 수 저장
   totalNodeCount.value = data.nodes.length
@@ -421,7 +465,10 @@ function syncGraphData(data: GraphData): { newNodes: NvlNode[]; newRels: NvlRela
   
   // 노드 limit 적용 (props.maxNodes 사용, 확장 모드에서는 무시)
   const maxDisplayNodes = shouldIgnoreLimit ? data.nodes.length : (props.maxNodes || DEFAULT_MAX_NODES)
-  const limitedNodes = data.nodes.slice(0, maxDisplayNodes)
+  
+  // 라벨 필터 적용 후 limit 적용
+  const filteredNodes = data.nodes.filter(n => matchesLabelFilter(n))
+  const limitedNodes = filteredNodes.slice(0, maxDisplayNodes)
   
   // 숨겨진 노드 제외
   const visibleNodes = limitedNodes.filter(n => !hiddenNodeIds.has(n.id))
@@ -430,18 +477,30 @@ function syncGraphData(data: GraphData): { newNodes: NvlNode[]; newRels: NvlRela
   hiddenNodeCount.value = shouldIgnoreLimit ? 0 : Math.max(0, data.nodes.length - maxDisplayNodes)
   isLimitApplied.value = shouldIgnoreLimit ? false : (data.nodes.length > maxDisplayNodes)
   
+  // 먼저 노드를 nodeMap에 추가
   for (const node of visibleNodes) {
     const isSelected = props.selectedNodeId === node.id
-    const isExpandable = isExpandableNode(node.id)
     const existing = nodeMap.get(node.id)
     
     if (existing && existing.selected === isSelected) {
       continue
     }
     
-    const nvlNode = toNvlNode(node, isSelected, isExpandable)
+    // 일단 isExpandable=false로 추가 (나중에 업데이트)
+    const nvlNode = toNvlNode(node, isSelected, false)
     nodeMap.set(node.id, nvlNode)
     newNodes.push(nvlNode)
+  }
+  
+  // nodeMap이 채워진 후에 확장 가능한 노드 업데이트
+  updateExpandableNodes()
+  
+  // 확장 가능 상태 반영하여 노드 속성 업데이트
+  for (const nvlNode of newNodes) {
+    const expandable = isExpandableNode(nvlNode.id)
+    if (nvlNode.properties) {
+      nvlNode.properties.isExpandable = expandable
+    }
   }
   
   const displayedRels = new Map<string, NvlRelationship>()
@@ -578,8 +637,10 @@ function expandNode(nodeId: string): void {
   const nodesToAdd: NvlNode[] = []
   const relsToAdd: NvlRelationship[] = []
   
-  // 이미 표시된 노드 수 (디버깅용)
+  // 디버깅용 카운터
   let alreadyDisplayedCount = 0
+  let notFoundInGraphDataCount = 0
+  const notFoundNodeIds: string[] = []
   
   for (const connectedNodeId of connectedNodeIds) {
     // 이미 표시된 노드는 스킵
@@ -589,13 +650,22 @@ function expandNode(nodeId: string): void {
     }
     
     const originalNode = props.graphData.nodes.find(n => n.id === connectedNodeId)
-    if (!originalNode) continue
+    if (!originalNode) {
+      notFoundInGraphDataCount++
+      notFoundNodeIds.push(connectedNodeId.substring(0, 30))
+      continue
+    }
     
     hiddenNodeIds.delete(connectedNodeId)
     
     const nvlNode = toNvlNode(originalNode, props.selectedNodeId === connectedNodeId, isExpandableNode(connectedNodeId))
     nodeMap.set(connectedNodeId, nvlNode)
     nodesToAdd.push(nvlNode)
+  }
+  
+  // 상세 디버깅 로그
+  if (notFoundInGraphDataCount > 0) {
+    console.warn(`[expandNode] ⚠️ graphData.nodes에서 찾지 못한 연결 노드: ${notFoundInGraphDataCount}개`, notFoundNodeIds)
   }
   
   // 확장된 노드와 직계 노드들 간의 관계 추가
@@ -627,6 +697,35 @@ function expandNode(nodeId: string): void {
     nvlInstance.value.addAndUpdateElementsInGraph(nodesToAdd, relsToAdd)
     nodesToAdd.forEach(node => renderedNodeIds.add(node.id))
     relsToAdd.forEach(rel => renderedRelIds.add(rel.id))
+    
+    // 새 노드 추가 후 확장 가능한 노드 목록 업데이트
+    updateExpandableNodes()
+    
+    // 새로 추가된 노드들과 기존 노드들의 확장 가능 상태 업데이트
+    const allDisplayedNodeIds = Array.from(nodeMap.keys())
+    const nodesToUpdate: NvlNode[] = []
+    
+    for (const nodeId of allDisplayedNodeIds) {
+      const existingNode = nodeMap.get(nodeId)
+      if (existingNode) {
+        const shouldBeExpandable = isExpandableNode(nodeId)
+        const currentExpandable = existingNode.properties?.isExpandable ?? false
+        
+        if (shouldBeExpandable !== currentExpandable) {
+          existingNode.properties = {
+            ...existingNode.properties,
+            isExpandable: shouldBeExpandable
+          }
+          nodesToUpdate.push(existingNode)
+        }
+      }
+    }
+    
+    // 확장 가능 상태가 변경된 노드들 업데이트
+    if (nodesToUpdate.length > 0) {
+      nvlInstance.value.addAndUpdateElementsInGraph(nodesToUpdate, [])
+      console.log(`[expandNode] ${nodesToUpdate.length}개 노드의 확장 가능 상태 업데이트됨`)
+    }
   }
   
   updateNodeStats()
@@ -654,8 +753,26 @@ function setupInteractions(): void {
     
     if (isDoubleClick) {
       // 더블클릭: 노드 확장
-      if (isExpandableNode(node.id)) {
+      const expandable = isExpandableNode(node.id)
+      console.log(`[더블클릭] 노드: ${node.id.substring(0, 30)}..., 확장가능: ${expandable}, expandableNodeIds 크기: ${expandableNodeIds.size}`)
+      
+      if (expandable) {
         expandNode(node.id)
+      } else {
+        // 확장 가능하지 않은 이유 상세 디버깅
+        const linksForNode = props.graphData.links.filter(l => l.source === node.id || l.target === node.id)
+        console.log(`[더블클릭] 확장 불가 - 연결된 관계 수: ${linksForNode.length}`)
+        
+        // 연결된 노드들 분석
+        const allNodeIds = new Set(props.graphData.nodes.map(n => n.id))
+        const displayedIds = new Set(Array.from(nodeMap.keys()).filter(id => !hiddenNodeIds.has(id)))
+        
+        for (const link of linksForNode) {
+          const connectedId = link.source === node.id ? link.target : link.source
+          const inGraphData = allNodeIds.has(connectedId)
+          const isDisplayed = displayedIds.has(connectedId)
+          console.log(`  관계 [${link.type}] → ${connectedId.substring(0, 20)}... | graphData: ${inGraphData}, 표시됨: ${isDisplayed}`)
+        }
       }
       lastClickNodeId = null
       lastClickTime = 0
@@ -981,6 +1098,14 @@ watch(() => props.maxNodes, () => {
     initNvl()
   }
 })
+
+// 라벨 필터 변경 시 그래프 재렌더링
+watch(() => props.labelFilters, () => {
+  if (props.graphData.nodes.length > 0) {
+    resetGraph()
+    initNvl()
+  }
+}, { deep: true })
 
 watch([() => props.selectedNodeId, () => props.selectedRelationshipId], ([newNodeId, newRelId], [oldNodeId, oldRelId]) => {
   if (!nvlInstance.value || (newNodeId === oldNodeId && newRelId === oldRelId)) return

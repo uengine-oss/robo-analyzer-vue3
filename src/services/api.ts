@@ -40,16 +40,36 @@ type Headers = Record<string, string>
 
 /**
  * HTTP 에러 처리
+ * 서버에서 반환하는 JSON 오류 응답을 파싱하여 정확한 메시지 추출
  */
 async function handleHttpError(response: Response): Promise<never> {
   const errorText = await response.text().catch(() => '')
-  const errorMessage = errorText || `HTTP ${response.status}`
   
   // 서버 에러 상세 정보를 콘솔에 출력 (디버깅용)
   console.error(`[API Error] ${response.status} ${response.statusText}`)
   console.error(`[API Error] URL: ${response.url}`)
-  console.error(`[API Error] Response body:`, errorMessage)
-  console.error(`[API Error] Response headers:`, Object.fromEntries(response.headers.entries()))
+  console.error(`[API Error] Response body:`, errorText)
+  
+  // JSON 응답에서 detail 필드 추출 시도
+  let errorMessage = `HTTP ${response.status}`
+  try {
+    const errorJson = JSON.parse(errorText)
+    if (errorJson.detail) {
+      // FastAPI 스타일 오류 응답
+      errorMessage = errorJson.detail
+      if (errorJson.error_type) {
+        errorMessage = `[${errorJson.error_type}] ${errorMessage}`
+      }
+    } else if (errorJson.message) {
+      // 일반 오류 응답
+      errorMessage = errorJson.message
+    } else {
+      errorMessage = errorText || `HTTP ${response.status}`
+    }
+  } catch {
+    // JSON 파싱 실패 시 원본 텍스트 사용
+    errorMessage = errorText || `HTTP ${response.status}`
+  }
   
   throw new Error(errorMessage)
 }
@@ -388,6 +408,30 @@ export const roboApi = {
   },
   
   /**
+   * Neo4j에서 기존 그래프 데이터 조회
+   * 
+   * Request Headers:
+   *   Session-UUID: 세션 UUID (필수)
+   * 
+   * Response: JSON { Nodes: [...], Relationships: [...] }
+   */
+  async getGraphData(headers: Headers): Promise<{ 
+    Nodes: Array<{ 'Node ID': string; Labels: string[]; Properties: Record<string, unknown> }>;
+    Relationships: Array<{ 'Relationship ID': string; 'Start Node ID': string; 'End Node ID': string; Type: string; Properties: Record<string, unknown> }>;
+  }> {
+    const response = await fetch(`${ROBO_BASE_URL}/graph/`, {
+      method: 'GET',
+      headers
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  },
+  
+  /**
    * 사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
    * 
    * Request Headers:
@@ -445,6 +489,163 @@ export const ingestApi = {
       throw new Error(errorText || `HTTP ${response.status}`)
     }
     
+    return response.json()
+  }
+}
+
+// ============================================================================
+// ROBO Schema API (ERD 모델링용 - Neo4j 직접 조회)
+// ============================================================================
+
+export interface RoboSchemaTableInfo {
+  name: string
+  table_schema: string  // Renamed from 'schema' in backend
+  description: string
+  column_count: number
+  project_name?: string
+}
+
+export interface RoboSchemaColumnInfo {
+  name: string
+  table_name: string
+  dtype: string
+  nullable: boolean
+  description: string
+}
+
+export interface RoboSchemaRelationship {
+  from_table: string
+  from_schema: string
+  from_column: string
+  to_table: string
+  to_schema: string
+  to_column: string
+  relationship_type: string
+  description: string
+}
+
+/**
+ * ROBO Analyzer Schema API
+ * Neo4j에서 DDL 분석 결과(테이블, 컬럼, 관계)를 조회
+ */
+export const roboSchemaApi = {
+  /**
+   * 테이블 목록 조회 (Neo4j)
+   */
+  async getTables(
+    sessionId: string,
+    options?: { search?: string; schema?: string; projectName?: string; limit?: number }
+  ): Promise<RoboSchemaTableInfo[]> {
+    const params = new URLSearchParams()
+    if (options?.search) params.append('search', options.search)
+    if (options?.schema) params.append('schema', options.schema)
+    if (options?.projectName) params.append('project_name', options.projectName)
+    if (options?.limit) params.append('limit', options.limit.toString())
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/tables?${params}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 테이블 컬럼 목록 조회 (Neo4j)
+   */
+  async getTableColumns(
+    sessionId: string,
+    tableName: string,
+    options?: { schema?: string; projectName?: string }
+  ): Promise<RoboSchemaColumnInfo[]> {
+    const params = new URLSearchParams()
+    if (options?.schema) params.append('schema', options.schema)
+    if (options?.projectName) params.append('project_name', options.projectName)
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/tables/${tableName}/columns?${params}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 테이블 관계 목록 조회 (Neo4j)
+   */
+  async getRelationships(
+    sessionId: string,
+    projectName?: string
+  ): Promise<{ relationships: RoboSchemaRelationship[] }> {
+    const params = new URLSearchParams()
+    if (projectName) params.append('project_name', projectName)
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships?${params}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 테이블 관계 추가 (Neo4j)
+   */
+  async addRelationship(
+    sessionId: string,
+    relationship: {
+      from_table: string
+      from_schema?: string
+      from_column: string
+      to_table: string
+      to_schema?: string
+      to_column: string
+      relationship_type: string
+      description?: string
+    }
+  ): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Session-UUID': sessionId
+      },
+      body: JSON.stringify(relationship)
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 테이블 관계 삭제 (Neo4j)
+   */
+  async deleteRelationship(
+    sessionId: string,
+    params: {
+      from_table: string
+      from_column: string
+      to_table: string
+      to_column: string
+    }
+  ): Promise<{ success: boolean; message: string }> {
+    const searchParams = new URLSearchParams(params as Record<string, string>)
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships?${searchParams}`, {
+      method: 'DELETE',
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
     return response.json()
   }
 }

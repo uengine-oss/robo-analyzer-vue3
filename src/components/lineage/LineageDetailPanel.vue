@@ -192,6 +192,17 @@ function getNodeTypeIcon(type: string): string {
   flex-direction: column;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
   z-index: 100;
+  
+  // 텍스트 선택시 가시성 보장
+  ::selection {
+    background: var(--color-accent);
+    color: white;
+  }
+  
+  ::-moz-selection {
+    background: var(--color-accent);
+    color: white;
+  }
 }
 
 // 헤더

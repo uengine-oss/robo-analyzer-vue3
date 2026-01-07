@@ -26,8 +26,10 @@ import {
   IconRefresh,
   IconTrash,
   IconCopy,
-  IconCheck
+  IconCheck,
+  IconEdit
 } from '@/components/icons'
+import { getAppTitle, setAppTitle, DEFAULT_APP_TITLE } from '@/config/appSettings'
 
 // ============================================================================
 // Props & Emits
@@ -67,6 +69,9 @@ const tempUmlDepth = ref(3)
 const tempApiKey = ref('')
 const showApiKey = ref(false)
 
+/** 앱 타이틀 */
+const tempAppTitle = ref(DEFAULT_APP_TITLE)
+
 /** 변경 여부 */
 const hasChanges = ref(false)
 
@@ -81,7 +86,7 @@ watch(storeApiKey, (value) => {
 }, { immediate: true })
 
 /** 활성 설정 섹션 */
-const activeSection = ref<'display' | 'api' | 'session' | 'danger'>('display')
+const activeSection = ref<'general' | 'display' | 'api' | 'session' | 'danger'>('general')
 
 // ============================================================================
 // Computed
@@ -154,6 +159,9 @@ function handleSaveAndApply() {
     sessionStore.setApiKey(tempApiKey.value)
   }
   
+  // 앱 타이틀 저장
+  setAppTitle(tempAppTitle.value || DEFAULT_APP_TITLE)
+  
   hasChanges.value = false
   emit('close')
 }
@@ -163,7 +171,7 @@ function handleSaveAndApply() {
 // ============================================================================
 
 // 값 변경 감지 (저장 버튼 활성화용)
-watch([tempNodeLimit, tempUmlDepth, tempApiKey], () => {
+watch([tempNodeLimit, tempUmlDepth, tempApiKey, tempAppTitle], () => {
   if (props.isOpen) {
     hasChanges.value = true
   }
@@ -172,7 +180,7 @@ watch([tempNodeLimit, tempUmlDepth, tempApiKey], () => {
 watch(() => props.isOpen, (isOpen) => {
   if (isOpen) {
     // 모달 열릴 때 현재 설정값 로드
-    activeSection.value = 'display'
+    activeSection.value = 'general'
     hasChanges.value = false
     
     // localStorage에서 현재 값 로드
@@ -188,6 +196,8 @@ watch(() => props.isOpen, (isOpen) => {
     if (storeApiKey.value) {
       tempApiKey.value = storeApiKey.value
     }
+    // 앱 타이틀 로드
+    tempAppTitle.value = getAppTitle()
   }
 })
 </script>
@@ -214,6 +224,13 @@ watch(() => props.isOpen, (isOpen) => {
           <div class="modal-body">
             <!-- 사이드바 -->
             <nav class="settings-nav">
+              <button 
+                :class="{ active: activeSection === 'general' }"
+                @click="activeSection = 'general'"
+              >
+                <IconEdit :size="16" />
+                일반 설정
+              </button>
               <button 
                 :class="{ active: activeSection === 'display' }"
                 @click="activeSection = 'display'"
@@ -247,6 +264,29 @@ watch(() => props.isOpen, (isOpen) => {
             <!-- 컨텐츠 영역 (스크롤 가능) -->
             <div class="settings-content-wrapper">
               <div class="settings-content">
+              <!-- 일반 설정 -->
+              <div v-if="activeSection === 'general'" class="settings-section">
+                <h3>일반 설정</h3>
+                
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <span class="label-text">애플리케이션 타이틀</span>
+                    <span class="label-desc">
+                      상단 헤더에 표시되는 애플리케이션 이름입니다.
+                      브라우저 탭 제목에도 반영됩니다.
+                    </span>
+                  </div>
+                  <div class="setting-control">
+                    <input 
+                      type="text" 
+                      v-model="tempAppTitle" 
+                      :placeholder="DEFAULT_APP_TITLE"
+                      class="title-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <!-- 표시 설정 -->
               <div v-if="activeSection === 'display'" class="settings-section">
                 <h3>표시 설정</h3>
@@ -666,6 +706,11 @@ watch(() => props.isOpen, (isOpen) => {
       outline: none;
       border-color: var(--color-accent);
       box-shadow: 0 0 0 3px rgba(34, 139, 230, 0.15);
+    }
+    
+    &.title-input {
+      width: 100%;
+      max-width: 300px;
     }
   }
 

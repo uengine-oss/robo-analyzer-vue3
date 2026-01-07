@@ -80,6 +80,20 @@
   padding: 0;
 }
 
+// ============================================
+// Text Selection (for dark theme visibility)
+// ============================================
+
+::selection {
+  background: var(--color-accent);
+  color: white;
+}
+
+::-moz-selection {
+  background: var(--color-accent);
+  color: white;
+}
+
 html, body {
   height: 100%;
   width: 100%;

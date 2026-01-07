@@ -4,12 +4,13 @@
  * 상단 헤더 - 로고, 검색바, 사용자 정보
  */
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { useProjectStore } from '@/stores/project'
 import { storeToRefs } from 'pinia'
 import SettingsModal from './SettingsModal.vue'
 import { IconSearch, IconBell, IconSettings, IconFolder } from '@/components/icons'
+import { getAppTitle } from '@/config/appSettings'
 
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
@@ -20,6 +21,13 @@ const { projectName, isProcessing, currentStep } = storeToRefs(projectStore)
 const showSettings = ref(false)
 const searchQuery = ref('')
 const nodeLimit = ref(500)
+const appTitle = ref(getAppTitle())
+
+// 타이틀 변경 이벤트 핸들러
+const handleAppTitleChange = (event: Event) => {
+  const customEvent = event as CustomEvent<string>
+  appTitle.value = customEvent.detail
+}
 
 // localStorage에서 값 로드 (안전하게, 마운트 후)
 onMounted(() => {
@@ -32,6 +40,13 @@ onMounted(() => {
   } catch (e) {
     console.warn('localStorage 접근 실패:', e)
   }
+  
+  // 타이틀 변경 이벤트 리스너 등록
+  window.addEventListener('appTitleChange', handleAppTitleChange)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('appTitleChange', handleAppTitleChange)
 })
 
 const copySessionId = async () => {
@@ -65,7 +80,7 @@ const handleSearch = () => {
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
         </span>
-        <span class="logo-text">Robo Analyzer</span>
+        <span class="logo-text">{{ appTitle }}</span>
       </button>
     </div>
     

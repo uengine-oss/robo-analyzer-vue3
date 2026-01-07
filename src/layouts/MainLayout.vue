@@ -1,7 +1,20 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import TopToolbar from '@/components/common/TopToolbar.vue'
 import SideNav from '@/components/common/SideNav.vue'
 import { RouterView } from 'vue-router'
+import { useProjectStore } from '@/stores/project'
+
+const projectStore = useProjectStore()
+
+// 앱 초기화 시 Neo4j에서 기존 그래프 데이터 로드
+onMounted(async () => {
+  try {
+    await projectStore.loadExistingGraphData()
+  } catch (error) {
+    console.warn('초기 그래프 데이터 로드 실패:', error)
+  }
+})
 </script>
 
 <template>
