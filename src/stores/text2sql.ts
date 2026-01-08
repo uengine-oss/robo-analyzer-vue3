@@ -73,6 +73,7 @@ export const useReactStore = defineStore('react', () => {
     sections: Record<string, string>
     metadata: Record<MetadataItemType, Array<Record<string, unknown>>>
     isRepairing: boolean
+    exploringOpen: boolean
   }
 
   const liveByIteration = ref<Record<number, LiveIterationState>>({})
@@ -147,6 +148,22 @@ export const useReactStore = defineStore('react', () => {
     executionResult.value = response.execution_result ?? null
   }
 
+  function ensureLiveIteration(iter: number) {
+    if (!liveByIteration.value[iter]) {
+      liveByIteration.value[iter] = {
+        sections: {},
+        metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
+        isRepairing: false,
+        exploringOpen: true
+      }
+    }
+  }
+
+  function setExploringOpen(iteration: number, open: boolean) {
+    ensureLiveIteration(iteration)
+    liveByIteration.value[iteration].exploringOpen = open
+  }
+
   async function consumeStream(request: ReactRequest, controller: AbortController) {
     try {
       for await (const event of text2sqlApi.reactStream(request, { signal: controller.signal })) {
@@ -165,27 +182,22 @@ export const useReactStore = defineStore('react', () => {
           }
           case 'section_delta': {
             const iter = event.iteration
-            if (!liveByIteration.value[iter]) {
-              liveByIteration.value[iter] = {
-                sections: {},
-                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
-                isRepairing: false
-              }
-            }
+            ensureLiveIteration(iter)
+            const wasReasoningEmpty =
+              event.section === 'reasoning' &&
+              ((liveByIteration.value[iter].sections['reasoning'] || '').length === 0)
             const prev = liveByIteration.value[iter].sections[event.section] || ''
             liveByIteration.value[iter].sections[event.section] = prev + (event.delta || '')
+            // Auto-collapse Exploring when Reasoning starts streaming (first delta)
+            if (wasReasoningEmpty && (event.delta || '').length > 0) {
+              liveByIteration.value[iter].exploringOpen = false
+            }
             currentIteration.value = iter
             break
           }
           case 'metadata_item': {
             const iter = event.iteration
-            if (!liveByIteration.value[iter]) {
-              liveByIteration.value[iter] = {
-                sections: {},
-                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
-                isRepairing: false
-              }
-            }
+            ensureLiveIteration(iter)
             const t = event.item_type
             if (t && liveByIteration.value[iter].metadata[t]) {
               liveByIteration.value[iter].metadata[t].push(event.item || {})
@@ -195,13 +207,7 @@ export const useReactStore = defineStore('react', () => {
           }
           case 'format_repair': {
             const iter = event.iteration
-            if (!liveByIteration.value[iter]) {
-              liveByIteration.value[iter] = {
-                sections: {},
-                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
-                isRepairing: false
-              }
-            }
+            ensureLiveIteration(iter)
             liveByIteration.value[iter].isRepairing = true
             currentIteration.value = iter
             break
@@ -443,6 +449,7 @@ export const useReactStore = defineStore('react', () => {
     // 섹션별 실시간 스트리밍
     liveByIteration,
     debugStreamRawXmlTokens,
+    setExploringOpen,
     // Computed
     isRunning,
     isWaitingUser,
