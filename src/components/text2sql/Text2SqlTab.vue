@@ -11,12 +11,7 @@
           <p>자연어로 질문하면 AI가 SQL을 생성합니다.</p>
           <div class="examples">
             <span class="example-label">예시:</span>
-            <button 
-              v-for="example in exampleQueries" 
-              :key="example"
-              class="example-btn"
-              @click="setQuestion(example)"
-            >
+            <button v-for="example in exampleQueries" :key="example" class="example-btn" @click="setQuestion(example)">
               {{ example }}
             </button>
           </div>
@@ -24,11 +19,7 @@
 
         <!-- 채팅 메시지들 -->
         <TransitionGroup name="message-anim">
-          <div 
-            v-for="(msg, idx) in chatMessages" 
-            :key="msg.id"
-            :class="['chat-message', msg.type]"
-          >
+          <div v-for="msg in chatMessages" :key="msg.id" :class="['chat-message', msg.type]">
             <!-- 사용자 메시지 -->
             <template v-if="msg.type === 'user'">
               <div class="message-avatar user">👤</div>
@@ -88,13 +79,104 @@
                 <div v-if="msg.result" class="tool-result-inline">
                   <div class="result-header" @click="toggleMessageExpand(msg.id)">
                     <span>결과</span>
-                    <IconChevronDown 
-                      :size="12" 
-                      :class="{ rotated: expandedMessages.has(msg.id) }"
-                    />
+                    <IconChevronDown :size="12" :class="{ rotated: expandedMessages.has(msg.id) }" />
                   </div>
-                  <pre v-if="expandedMessages.has(msg.id) || !isResultLong(msg.result)"><code>{{ msg.result }}</code></pre>
+                  <pre
+                    v-if="expandedMessages.has(msg.id) || !isResultLong(msg.result)"><code>{{ msg.result }}</code></pre>
                   <pre v-else><code>{{ truncateResult(msg.result) }}</code></pre>
+                </div>
+
+                <!-- 스텝 상세(섹션별) -->
+                <div v-if="msg.step" class="step-details">
+                  <div class="step-details-header" @click="toggleStepDetails(msg.id)">
+                    <span>스텝 상세</span>
+                    <IconChevronDown :size="12" :class="{ rotated: expandedStepDetails.has(msg.id) }" />
+                  </div>
+                  <div v-if="expandedStepDetails.has(msg.id)" class="step-details-body">
+                    <template v-if="getLiveForStep(msg.step)">
+                      <details v-if="(getLiveForStep(msg.step)?.sections?.reasoning ?? '').trim().length > 0" open
+                        class="live-section">
+                        <summary>추론</summary>
+                        <div class="live-text">{{ getLiveForStep(msg.step)?.sections?.reasoning }}</div>
+                      </details>
+                      <!-- Metadata를 추론 바로 아래로 이동 (XML 구조와 동일한 순서) -->
+                      <details
+                        v-if="(getLiveForStep(msg.step)?.metadata?.table?.length || 0) + (getLiveForStep(msg.step)?.metadata?.column?.length || 0) + (getLiveForStep(msg.step)?.metadata?.value?.length || 0) + (getLiveForStep(msg.step)?.metadata?.relationship?.length || 0) + (getLiveForStep(msg.step)?.metadata?.constraint?.length || 0) > 0"
+                        class="live-section">
+                        <summary>
+                          Metadata
+                          <span class="meta-counts">
+                            T{{ getLiveForStep(msg.step)?.metadata?.table?.length || 0 }} ·
+                            C{{ getLiveForStep(msg.step)?.metadata?.column?.length || 0 }} ·
+                            V{{ getLiveForStep(msg.step)?.metadata?.value?.length || 0 }} ·
+                            R{{ getLiveForStep(msg.step)?.metadata?.relationship?.length || 0 }} ·
+                            K{{ getLiveForStep(msg.step)?.metadata?.constraint?.length || 0 }}
+                          </span>
+                        </summary>
+                        <div class="meta-groups">
+                          <div class="meta-group" v-for="t in availableMetaTypesForStep(msg.step)" :key="t">
+                            <button class="meta-toggle" type="button" @click="toggleMetaType(t)">
+                              {{ metaTypeLabel(t) }}
+                              <span class="meta-badge">{{ (getLiveForStep(msg.step)?.metadata?.[t]?.length ?? 0)
+                              }}</span>
+                            </button>
+                            <div v-if="expandedMetaTypes.has(t)" class="meta-items">
+                              <div v-for="(item, i) in (getLiveForStep(msg.step)?.metadata?.[t] ?? [])"
+                                :key="`${t}-${i}`" class="meta-item">
+                                <div class="meta-item-kv" v-for="(v, k) in item" :key="String(k)">
+                                  <span class="meta-item-key">{{ k }}</span>
+                                  <span class="meta-item-val">{{ String(v) }}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </details>
+
+                      <details v-if="(getLiveForStep(msg.step)?.sections?.partial_sql ?? '').trim().length > 0"
+                        class="live-section">
+                        <summary>부분 SQL</summary>
+                        <pre class="live-code"><code>{{ getLiveForStep(msg.step)?.sections?.partial_sql }}</code></pre>
+                      </details>
+                      <details
+                        v-if="((getLiveForStep(msg.step)?.sections?.['sql_completeness_check.confidence_level'] ?? '').trim().length > 0) || ((getLiveForStep(msg.step)?.sections?.['sql_completeness_check.missing_info'] ?? '').trim().length > 0)"
+                        class="live-section">
+                        <summary>완성도</summary>
+                        <div class="live-kv">
+                          <div class="kv-row">
+                            <span class="kv-key">confidence</span>
+                            <span class="kv-val">{{
+                              getLiveForStep(msg.step)?.sections?.['sql_completeness_check.confidence_level'] || '-'
+                            }}</span>
+                          </div>
+                          <div class="kv-row">
+                            <span class="kv-key">missing_info</span>
+                            <span class="kv-val">{{
+                              getLiveForStep(msg.step)?.sections?.['sql_completeness_check.missing_info'] || '-'
+                            }}</span>
+                          </div>
+                        </div>
+                      </details>
+                      <details
+                        v-if="((getLiveForStep(msg.step)?.sections?.['tool_call.tool_name'] ?? '').trim().length > 0) || ((getLiveForStep(msg.step)?.sections?.['tool_call.parameters'] ?? '').trim().length > 0)"
+                        class="live-section">
+                        <summary>Tool Call</summary>
+                        <div class="live-kv">
+                          <div class="kv-row">
+                            <span class="kv-key">tool</span>
+                            <span class="kv-val">{{ getLiveForStep(msg.step)?.sections?.['tool_call.tool_name'] || '-'
+                            }}</span>
+                          </div>
+                          <div class="kv-row">
+                            <span class="kv-key">params</span>
+                            <span class="kv-val mono">{{ getLiveForStep(msg.step)?.sections?.['tool_call.parameters'] ||
+                              '-' }}</span>
+                          </div>
+                        </div>
+                      </details>
+                    </template>
+                    <div v-else class="meta-empty">스텝 상세 데이터가 아직 없습니다.</div>
+                  </div>
                 </div>
               </div>
             </template>
@@ -149,16 +231,96 @@
           </div>
         </TransitionGroup>
 
-        <!-- 현재 스트리밍 중인 LLM 응답 -->
-        <div v-if="reactStore.isStreaming" class="chat-message ai streaming">
-          <div class="message-avatar ai">🧠</div>
-          <div class="message-content">
+        <!-- Live 스트리밍 패널 (섹션별) -->
+        <div v-if="reactStore.isRunning && liveCurrent" class="chat-message ai live">
+          <div class="message-avatar ai">🧩</div>
+          <div class="message-content live-content">
             <div class="message-header">
               <span class="step-badge">Step {{ reactStore.currentIteration }}</span>
-              <span class="phase-label thinking">AI 사고 중</span>
+              <span class="phase-label thinking">실시간 생성 중</span>
+              <span v-if="liveRepairing" class="repair-badge">출력 포맷 정리 중...</span>
             </div>
-            <div class="message-text typing-active">
-              {{ reactStore.streamingText }}<span class="cursor">▌</span>
+
+            <div class="live-sections">
+              <details v-if="liveReasoning.trim().length > 0" open class="live-section">
+                <summary>추론(Reasoning)</summary>
+                <div class="live-text">
+                  <span>{{ liveReasoning }}</span><span class="cursor"
+                    v-if="reactStore.currentPhase === 'thinking'">▌</span>
+                </div>
+              </details>
+
+              <!-- Metadata를 추론 바로 아래로 이동 (XML 구조와 동일한 순서) -->
+              <details
+                v-if="(liveMetaCounts.table + liveMetaCounts.column + liveMetaCounts.value + liveMetaCounts.relationship + liveMetaCounts.constraint) > 0"
+                open class="live-section">
+                <summary>
+                  메타데이터(Collected Metadata)
+                  <span class="meta-counts">
+                    T{{ liveMetaCounts.table }} · C{{ liveMetaCounts.column }} · V{{ liveMetaCounts.value }} · R{{
+                      liveMetaCounts.relationship }} · K{{ liveMetaCounts.constraint }}
+                  </span>
+                </summary>
+                <div class="meta-groups">
+                  <div class="meta-group" v-for="t in availableMetaTypesLive" :key="t">
+                    <button class="meta-toggle" type="button" @click="toggleMetaType(t)">
+                      {{ metaTypeLabel(t) }}
+                      <span class="meta-badge">{{ (liveCurrent?.metadata?.[t]?.length ?? 0) }}</span>
+                    </button>
+                    <div v-if="expandedMetaTypes.has(t)" class="meta-items">
+                      <div v-for="(item, i) in (liveCurrent?.metadata?.[t] ?? [])" :key="`${t}-${i}`" class="meta-item">
+                        <div class="meta-item-kv" v-for="(v, k) in item" :key="String(k)">
+                          <span class="meta-item-key">{{ k }}</span>
+                          <span class="meta-item-val">{{ String(v) }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <details v-if="livePartialSql.trim().length > 0" open class="live-section">
+                <summary>부분 SQL(Partial SQL)</summary>
+                <pre class="live-code"><code>{{ livePartialSql }}</code><span class="cursor"
+            v-if="reactStore.currentPhase === 'thinking'">▌</span></pre>
+              </details>
+
+              <details v-if="(liveConfidence || '').trim().length > 0 || (liveMissingInfo || '').trim().length > 0" open
+                class="live-section">
+                <summary>완성도(SQL Completeness)</summary>
+                <div class="live-kv">
+                  <div class="kv-row">
+                    <span class="kv-key">confidence</span>
+                    <span class="kv-val">{{ liveConfidence || '-' }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-key">missing_info</span>
+                    <span class="kv-val">{{ liveMissingInfo || '-' }}</span>
+                  </div>
+                </div>
+              </details>
+
+              <details v-if="(liveToolName || '').trim().length > 0 || (liveToolParams || '').trim().length > 0" open
+                class="live-section">
+                <summary>다음 액션(Next Tool)</summary>
+                <div class="live-kv">
+                  <div class="kv-row">
+                    <span class="kv-key">tool</span>
+                    <span class="kv-val">{{ liveToolName || '-' }}</span>
+                  </div>
+                  <div class="kv-row">
+                    <span class="kv-key">params</span>
+                    <span class="kv-val mono">{{ liveToolParams || '-' }}</span>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Raw XML 토큰(디버그) -->
+              <details v-if="reactStore.debugStreamRawXmlTokens && reactStore.streamingText" class="live-section">
+                <summary>Raw XML (디버그)</summary>
+                <pre class="live-code raw"><code>{{ reactStore.streamingText }}</code><span class="cursor"
+            v-if="reactStore.isStreaming">▌</span></pre>
+              </details>
             </div>
           </div>
         </div>
@@ -175,21 +337,11 @@
 
         <!-- 입력창 -->
         <div class="input-wrapper">
-          <textarea
-            v-model="inputText"
-            :placeholder="inputPlaceholder"
-            :disabled="reactStore.isRunning && !reactStore.isWaitingUser"
-            rows="1"
-            @keydown.enter.exact.prevent="handleSubmit"
-            @keydown.shift.enter="handleNewline"
-            @input="autoResize"
-            ref="inputRef"
-          ></textarea>
-          <button 
-            class="send-btn"
-            :disabled="!canSubmit"
-            @click="handleSubmit"
-          >
+          <textarea v-model="inputText" :placeholder="inputPlaceholder"
+            :disabled="reactStore.isRunning && !reactStore.isWaitingUser" rows="1"
+            @keydown.enter.exact.prevent="handleSubmit" @keydown.shift.enter="handleNewline" @input="autoResize"
+            ref="inputRef"></textarea>
+          <button class="send-btn" :disabled="!canSubmit" @click="handleSubmit">
             <IconPlay v-if="!reactStore.isRunning" :size="18" />
             <IconUpload v-else :size="18" />
           </button>
@@ -201,7 +353,7 @@
           <span>고급 설정</span>
           <IconChevronDown :size="12" :class="{ rotated: showSettings }" />
         </div>
-        
+
         <transition name="slide">
           <div v-if="showSettings" class="settings-panel">
             <div class="setting-row">
@@ -211,6 +363,10 @@
             <div class="setting-row">
               <label>SQL 실행 제한(초)</label>
               <input v-model.number="maxSqlSeconds" type="number" min="1" max="3600" />
+            </div>
+            <div class="setting-row">
+              <label>Raw XML(디버그)</label>
+              <input v-model="debugRawXml" type="checkbox" />
             </div>
           </div>
         </transition>
@@ -244,9 +400,9 @@ import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import { useReactStore } from '@/stores/text2sql'
 import ResultTable from './ResultTable.vue'
 import TypeWriter from './TypeWriter.vue'
-import type { ReactStepModel, ReactExecutionResult } from '@/types'
-import { 
-  IconPlay, IconUpload, IconSettings, IconChevronDown, 
+import type { ReactExecutionResult } from '@/types'
+import {
+  IconPlay, IconUpload, IconSettings, IconChevronDown,
   IconCopy
 } from '@/components/icons'
 
@@ -277,7 +433,16 @@ const inputText = ref('')
 const showSettings = ref(false)
 const maxToolCalls = ref(30)
 const maxSqlSeconds = ref(60)
+const debugRawXml = ref(false)
 const expandedMessages = ref<Set<string>>(new Set())
+const expandedStepDetails = ref<Set<string>>(new Set())
+type MetadataItemType = 'table' | 'column' | 'value' | 'relationship' | 'constraint'
+const expandedMetaTypes = ref<Set<MetadataItemType>>(new Set())
+const metaTypesAll: MetadataItemType[] = ['table', 'column', 'value', 'relationship', 'constraint']
+
+const availableMetaTypesLive = computed(() => {
+  return metaTypesAll.filter(t => (liveCurrent.value?.metadata?.[t]?.length ?? 0) > 0)
+})
 
 // Chat messages
 const chatMessages = ref<ChatMessage[]>([])
@@ -291,23 +456,67 @@ const exampleQueries = [
 ]
 
 // Computed
-const canSubmit = computed(() => 
+const canSubmit = computed(() =>
   inputText.value.trim() && (!reactStore.isRunning || reactStore.isWaitingUser)
 )
 
-const inputPlaceholder = computed(() => 
-  reactStore.isWaitingUser 
-    ? '답변을 입력하세요...' 
+const inputPlaceholder = computed(() =>
+  reactStore.isWaitingUser
+    ? '답변을 입력하세요...'
     : '질문을 입력하세요... (Enter로 전송)'
 )
 
-const currentSql = computed(() => 
+const currentSql = computed(() =>
   reactStore.finalSql || reactStore.latestPartialSql || ''
 )
 
-const latestCompleteness = computed(() => 
+const latestCompleteness = computed(() =>
   reactStore.latestStep?.sql_completeness ?? null
 )
+
+const liveCurrent = computed(() => reactStore.liveByIteration[reactStore.currentIteration] ?? null)
+const liveReasoning = computed(() => liveCurrent.value?.sections?.reasoning ?? '')
+const livePartialSql = computed(() => liveCurrent.value?.sections?.partial_sql ?? '')
+const liveToolName = computed(() => liveCurrent.value?.sections?.['tool_call.tool_name'] ?? '')
+const liveToolParams = computed(() => liveCurrent.value?.sections?.['tool_call.parameters'] ?? '')
+const liveMissingInfo = computed(() => liveCurrent.value?.sections?.['sql_completeness_check.missing_info'] ?? '')
+const liveConfidence = computed(() => liveCurrent.value?.sections?.['sql_completeness_check.confidence_level'] ?? '')
+const liveRepairing = computed(() => !!liveCurrent.value?.isRepairing)
+const liveMetaCounts = computed(() => {
+  const m = liveCurrent.value?.metadata
+  if (!m) return { table: 0, column: 0, value: 0, relationship: 0, constraint: 0 }
+  return {
+    table: m.table?.length ?? 0,
+    column: m.column?.length ?? 0,
+    value: m.value?.length ?? 0,
+    relationship: m.relationship?.length ?? 0,
+    constraint: m.constraint?.length ?? 0
+  }
+})
+
+function toggleMetaType(t: MetadataItemType) {
+  if (expandedMetaTypes.value.has(t)) {
+    expandedMetaTypes.value.delete(t)
+  } else {
+    expandedMetaTypes.value.add(t)
+  }
+}
+
+function metaTypeLabel(t: MetadataItemType): string {
+  switch (t) {
+    case 'table': return 'Tables'
+    case 'column': return 'Columns'
+    case 'value': return 'Values'
+    case 'relationship': return 'Relationships'
+    case 'constraint': return 'Constraints'
+  }
+}
+
+function availableMetaTypesForStep(step?: number): MetadataItemType[] {
+  const s = getLiveForStep(step)
+  if (!s) return []
+  return metaTypesAll.filter(t => (s.metadata?.[t]?.length ?? 0) > 0)
+}
 
 // Helper functions
 function generateId(): string {
@@ -371,6 +580,19 @@ function toggleMessageExpand(id: string) {
   }
 }
 
+function toggleStepDetails(id: string) {
+  if (expandedStepDetails.value.has(id)) {
+    expandedStepDetails.value.delete(id)
+  } else {
+    expandedStepDetails.value.add(id)
+  }
+}
+
+function getLiveForStep(step?: number) {
+  if (!step) return null
+  return reactStore.liveByIteration[step] ?? null
+}
+
 function getConfidenceClass(level: string): string {
   const lower = level.toLowerCase()
   if (lower.includes('high')) return 'high'
@@ -396,10 +618,10 @@ function autoResize(e: Event) {
 // Event handlers
 async function handleSubmit() {
   if (!canSubmit.value) return
-  
+
   const text = inputText.value.trim()
   inputText.value = ''
-  
+
   if (reactStore.isWaitingUser) {
     // 사용자 응답
     addMessage({ type: 'user', content: text })
@@ -408,11 +630,15 @@ async function handleSubmit() {
     // 새 질문
     chatMessages.value = []
     addMessage({ type: 'user', content: text })
-    await reactStore.start(text, { maxToolCalls: maxToolCalls.value, maxSqlSeconds: maxSqlSeconds.value })
+    await reactStore.start(text, {
+      maxToolCalls: maxToolCalls.value,
+      maxSqlSeconds: maxSqlSeconds.value,
+      debugStreamRawXmlTokens: debugRawXml.value
+    })
   }
 }
 
-function handleNewline(e: KeyboardEvent) {
+function handleNewline(_e: KeyboardEvent) {
   // Shift+Enter는 줄바꿈
 }
 
@@ -426,7 +652,7 @@ watch(() => reactStore.currentPhase, (phase) => {
   if (phase === 'idle') {
     return
   }
-  
+
   const step = reactStore.currentIteration
   const data = reactStore.currentPhaseData
 
@@ -439,6 +665,9 @@ watch(() => reactStore.currentPhase, (phase) => {
       params: data.tool_parameters ? formatParams(data.tool_parameters) : undefined,
       isExecuting: true
     })
+  } else if (phase === 'reasoning') {
+    // reasoning은 토큰 스트림 대신 section_delta로 실시간 누적되므로, 빈 메시지만 먼저 두고 이후 UI에서 live 패널로 노출
+    // (추가로 필요하면 chatMessages에 reasoning 요약을 넣는 방식으로 확장 가능)
   } else if (phase === 'observing' && data?.tool_result_preview) {
     // 마지막 tool 메시지 업데이트
     const toolMsg = [...chatMessages.value].reverse().find(
@@ -457,6 +686,11 @@ watch(() => reactStore.currentPhase, (phase) => {
 watch(() => reactStore.streamingText, () => {
   scrollToBottom()
 })
+
+// Watch for live section deltas (섹션별 스트리밍)
+watch(() => reactStore.liveByIteration, () => {
+  scrollToBottom()
+}, { deep: true })
 
 // Watch for steps completion
 watch(() => reactStore.steps, (steps) => {
@@ -491,7 +725,7 @@ watch(() => reactStore.status, (status) => {
         content: reactStore.finalSql
       })
     }
-    
+
     if (reactStore.executionResult) {
       addMessage({
         type: 'result',
@@ -545,23 +779,23 @@ onMounted(() => {
   text-align: center;
   padding: 60px 24px;
   color: var(--color-text-light);
-  
+
   .welcome-icon {
     font-size: 48px;
     margin-bottom: 16px;
   }
-  
+
   h2 {
     margin: 0 0 8px 0;
     color: var(--color-text);
     font-size: 24px;
   }
-  
+
   p {
     margin: 0 0 24px 0;
     font-size: 14px;
   }
-  
+
   .examples {
     display: flex;
     flex-wrap: wrap;
@@ -569,12 +803,12 @@ onMounted(() => {
     justify-content: center;
     align-items: center;
   }
-  
+
   .example-label {
     font-size: 12px;
     color: var(--color-text-muted);
   }
-  
+
   .example-btn {
     padding: 8px 16px;
     background: var(--color-bg-secondary);
@@ -584,7 +818,7 @@ onMounted(() => {
     font-size: 13px;
     cursor: pointer;
     transition: all 0.15s;
-    
+
     &:hover {
       background: var(--color-accent);
       border-color: var(--color-accent);
@@ -599,38 +833,44 @@ onMounted(() => {
   gap: 12px;
   max-width: 85%;
   animation: message-in 0.3s ease-out;
-  
+
   &.user {
     align-self: flex-end;
     flex-direction: row-reverse;
-    
+
     .message-content {
       background: var(--color-accent);
       color: white;
       border-radius: 16px 16px 4px 16px;
     }
   }
-  
-  &.ai, &.thinking, &.reasoning, &.tool, &.question, &.sql, &.result {
+
+  &.ai,
+  &.thinking,
+  &.reasoning,
+  &.tool,
+  &.question,
+  &.sql,
+  &.result {
     align-self: flex-start;
-    
+
     .message-content {
       background: var(--color-bg-secondary);
       border: 1px solid var(--color-border);
       border-radius: 16px 16px 16px 4px;
     }
   }
-  
+
   &.error {
     align-self: flex-start;
-    
+
     .message-content {
       background: rgba(250, 82, 82, 0.1);
       border: 1px solid var(--color-error);
       border-radius: 16px;
     }
   }
-  
+
   &.streaming {
     .message-content {
       border-color: var(--color-accent);
@@ -643,6 +883,7 @@ onMounted(() => {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -658,16 +899,16 @@ onMounted(() => {
   justify-content: center;
   font-size: 18px;
   flex-shrink: 0;
-  
+
   &.user {
     background: var(--color-accent);
   }
-  
+
   &.ai {
     background: var(--color-bg-tertiary);
     border: 1px solid var(--color-border);
   }
-  
+
   &.error {
     background: rgba(250, 82, 82, 0.2);
   }
@@ -700,32 +941,32 @@ onMounted(() => {
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 4px;
-  
+
   &.thinking {
     background: rgba(251, 191, 36, 0.2);
     color: var(--color-warning);
   }
-  
+
   &.reasoning {
     background: rgba(168, 85, 247, 0.2);
     color: #a855f7;
   }
-  
+
   &.tool {
     background: rgba(34, 139, 230, 0.2);
     color: var(--color-accent);
   }
-  
+
   &.question {
     background: rgba(251, 191, 36, 0.2);
     color: var(--color-warning);
   }
-  
+
   &.sql {
     background: rgba(64, 192, 87, 0.2);
     color: var(--color-success);
   }
-  
+
   &.result {
     background: rgba(64, 192, 87, 0.2);
     color: var(--color-success);
@@ -738,7 +979,7 @@ onMounted(() => {
   color: var(--color-text);
   white-space: pre-wrap;
   word-break: break-word;
-  
+
   &.typing-active {
     .cursor {
       animation: blink 1s step-end infinite;
@@ -748,8 +989,15 @@ onMounted(() => {
 }
 
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
 }
 
 .typing-effect {
@@ -762,22 +1010,37 @@ onMounted(() => {
 .typing-dots {
   display: flex;
   gap: 4px;
-  
+
   span {
     width: 6px;
     height: 6px;
     background: var(--color-text-muted);
     border-radius: 50%;
     animation: typing-bounce 1.4s ease-in-out infinite;
-    
-    &:nth-child(2) { animation-delay: 0.2s; }
-    &:nth-child(3) { animation-delay: 0.4s; }
+
+    &:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.4s;
+    }
   }
 }
 
 @keyframes typing-bounce {
-  0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
-  40% { transform: scale(1); opacity: 1; }
+
+  0%,
+  80%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .next-action-badge {
@@ -796,7 +1059,7 @@ onMounted(() => {
   padding: 8px 10px;
   background: var(--color-bg-tertiary);
   border-radius: 6px;
-  
+
   code {
     font-size: 11px;
     font-family: var(--font-mono);
@@ -807,7 +1070,7 @@ onMounted(() => {
 
 .tool-result-inline {
   margin-top: 8px;
-  
+
   .result-header {
     display: flex;
     align-items: center;
@@ -816,16 +1079,16 @@ onMounted(() => {
     color: var(--color-text-muted);
     cursor: pointer;
     margin-bottom: 4px;
-    
+
     svg {
       transition: transform 0.2s;
-      
+
       &.rotated {
         transform: rotate(180deg);
       }
     }
   }
-  
+
   pre {
     margin: 0;
     padding: 8px;
@@ -834,12 +1097,212 @@ onMounted(() => {
     max-height: 150px;
     overflow: auto;
   }
-  
+
   code {
     font-size: 10px;
     font-family: var(--font-mono);
     color: var(--color-success);
   }
+}
+
+.step-details {
+  margin-top: 10px;
+}
+
+.step-details-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.step-details-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.meta-empty {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 8px 0;
+}
+
+.chat-message.live {
+  max-width: 95%;
+}
+
+.live-content {
+  width: 100%;
+}
+
+.repair-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--color-warning);
+}
+
+.live-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-section {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 8px 10px;
+
+  summary {
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+  }
+}
+
+.live-text {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.live-code {
+  margin: 8px 0 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: auto;
+  max-height: 220px;
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    white-space: pre;
+  }
+
+  &.raw code {
+    font-size: 10px;
+  }
+}
+
+.live-kv {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kv-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.kv-key {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  min-width: 90px;
+  font-family: var(--font-mono);
+}
+
+.kv-val {
+  font-size: 12px;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+
+  &.mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+}
+
+.meta-counts {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.meta-groups {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.meta-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.meta-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 139, 230, 0.15);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+}
+
+.meta-items {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meta-item {
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--color-border);
+}
+
+.meta-item-kv {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.meta-item-key {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.meta-item-val {
+  font-size: 12px;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .executing-indicator {
@@ -854,7 +1317,9 @@ onMounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .completed-indicator {
@@ -874,7 +1339,7 @@ onMounted(() => {
     background: var(--color-bg-tertiary);
     border-radius: 8px;
     overflow-x: auto;
-    
+
     code {
       font-size: 12px;
       font-family: var(--font-mono);
@@ -885,7 +1350,7 @@ onMounted(() => {
 
 .result-content {
   min-width: 300px;
-  
+
   .result-meta {
     font-size: 11px;
     color: var(--color-text-muted);
@@ -906,7 +1371,7 @@ onMounted(() => {
   color: var(--color-text-muted);
   cursor: pointer;
   border-radius: 4px;
-  
+
   &:hover {
     background: var(--color-bg-tertiary);
     color: var(--color-text);
@@ -930,7 +1395,7 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 13px;
   color: var(--color-accent);
-  
+
   .status-dot {
     width: 8px;
     height: 8px;
@@ -938,7 +1403,7 @@ onMounted(() => {
     border-radius: 50%;
     animation: pulse 1.5s ease-in-out infinite;
   }
-  
+
   .cancel-btn {
     margin-left: auto;
     padding: 4px 12px;
@@ -948,7 +1413,7 @@ onMounted(() => {
     color: var(--color-accent);
     font-size: 12px;
     cursor: pointer;
-    
+
     &:hover {
       background: var(--color-accent);
       color: white;
@@ -957,15 +1422,22 @@ onMounted(() => {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .input-wrapper {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  
+
   textarea {
     flex: 1;
     padding: 12px 16px;
@@ -978,22 +1450,22 @@ onMounted(() => {
     resize: none;
     min-height: 44px;
     max-height: 120px;
-    
+
     &::placeholder {
       color: var(--color-text-muted);
     }
-    
+
     &:focus {
       outline: none;
       border-color: var(--color-accent);
     }
-    
+
     &:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
   }
-  
+
   .send-btn {
     width: 44px;
     height: 44px;
@@ -1007,12 +1479,12 @@ onMounted(() => {
     justify-content: center;
     transition: all 0.15s;
     flex-shrink: 0;
-    
+
     &:hover:not(:disabled) {
       background: var(--color-accent-hover);
       transform: scale(1.05);
     }
-    
+
     &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
@@ -1031,12 +1503,12 @@ onMounted(() => {
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.15s;
-  
+
   &:hover {
     background: var(--color-bg-tertiary);
     color: var(--color-text);
   }
-  
+
   svg.rotated {
     transform: rotate(180deg);
   }
@@ -1049,17 +1521,17 @@ onMounted(() => {
   padding: 12px;
   background: var(--color-bg);
   border-radius: 8px;
-  
+
   .setting-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    
+
     label {
       font-size: 12px;
       color: var(--color-text-light);
     }
-    
+
     input {
       width: 70px;
       padding: 6px 10px;
@@ -1068,7 +1540,7 @@ onMounted(() => {
       border-radius: 4px;
       color: var(--color-text);
       font-size: 12px;
-      
+
       &:focus {
         outline: none;
         border-color: var(--color-accent);
@@ -1096,14 +1568,14 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  
+
   .panel-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
     border-bottom: 1px solid var(--color-border);
-    
+
     h3 {
       margin: 0;
       font-size: 14px;
@@ -1111,12 +1583,12 @@ onMounted(() => {
       color: var(--color-text);
     }
   }
-  
+
   .sql-preview {
     flex: 1;
     padding: 16px;
     overflow: auto;
-    
+
     pre {
       margin: 0;
       padding: 12px;
@@ -1124,7 +1596,7 @@ onMounted(() => {
       border-radius: 8px;
       overflow-x: auto;
     }
-    
+
     code {
       font-size: 12px;
       font-family: var(--font-mono);
@@ -1132,14 +1604,14 @@ onMounted(() => {
       line-height: 1.5;
     }
   }
-  
+
   .sql-placeholder {
     color: var(--color-text-muted);
     font-size: 13px;
     text-align: center;
     padding: 40px 20px;
   }
-  
+
   .completeness-bar {
     padding: 12px 16px;
     border-top: 1px solid var(--color-border);
@@ -1148,22 +1620,22 @@ onMounted(() => {
     gap: 8px;
     font-size: 12px;
     color: var(--color-text-light);
-    
+
     .level {
       padding: 2px 8px;
       border-radius: 4px;
       font-weight: 600;
-      
+
       &.high {
         background: rgba(64, 192, 87, 0.2);
         color: var(--color-success);
       }
-      
+
       &.medium {
         background: rgba(251, 191, 36, 0.2);
         color: var(--color-warning);
       }
-      
+
       &.low {
         background: rgba(250, 82, 82, 0.2);
         color: var(--color-error);
@@ -1182,8 +1654,13 @@ onMounted(() => {
 }
 
 @keyframes message-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 /* 반응형 */

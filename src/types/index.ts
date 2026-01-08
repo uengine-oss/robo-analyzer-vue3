@@ -290,6 +290,8 @@ export interface ReactRequest {
   user_response?: string | null
   max_sql_seconds?: number
   prefer_language?: string
+  /** 디버그용: raw XML 토큰 스트림(event=token)을 함께 받을지 */
+  debug_stream_xml_tokens?: boolean
 }
 
 /** ReAct Phase 데이터 */
@@ -308,6 +310,25 @@ export type ReactStreamEvent =
       event: 'token'
       iteration: number
       token: string
+    }
+  | {
+      event: 'section_delta'
+      iteration: number
+      /** extractor가 추출한 섹션/필드 키 (예: reasoning, partial_sql, tool_call.tool_name 등) */
+      section: string
+      /** 해당 섹션에 append 할 델타 */
+      delta: string
+    }
+  | {
+      event: 'metadata_item'
+      iteration: number
+      item_type: 'table' | 'column' | 'value' | 'relationship' | 'constraint'
+      item: Record<string, unknown>
+    }
+  | {
+      event: 'format_repair'
+      iteration: number
+      reason: string
     }
   | {
       event: 'phase'

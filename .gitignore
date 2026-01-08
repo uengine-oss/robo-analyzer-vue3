@@ -78,3 +78,6 @@ coverage/
 # yarn.lock
 # pnpm-lock.yaml
 
+# Private Datas
+p_*
+.temp

@@ -64,8 +64,19 @@ export const useReactStore = defineStore('react', () => {
   const currentPhaseData = ref<ReactPhaseData | null>(null)
   
   // 토큰 스트리밍 상태
-  const streamingText = ref<string>('')
-  const isStreaming = ref<boolean>(false)
+  const streamingText = ref<string>('') // 디버그용 raw 토큰 누적 (옵션)
+  const isStreaming = ref<boolean>(false) // legacy: phase 기반 표시와 호환 유지
+
+  // 섹션별 실시간 스트리밍 상태 (iteration 단위)
+  type MetadataItemType = 'table' | 'column' | 'value' | 'relationship' | 'constraint'
+  interface LiveIterationState {
+    sections: Record<string, string>
+    metadata: Record<MetadataItemType, Array<Record<string, unknown>>>
+    isRepairing: boolean
+  }
+
+  const liveByIteration = ref<Record<number, LiveIterationState>>({})
+  const debugStreamRawXmlTokens = ref<boolean>(false)
 
   // Computed
   const isRunning = computed(() => status.value === 'running')
@@ -95,6 +106,7 @@ export const useReactStore = defineStore('react', () => {
     currentPhaseData.value = null
     streamingText.value = ''
     isStreaming.value = false
+    liveByIteration.value = {}
   }
 
   function cancelOngoing() {
@@ -140,13 +152,58 @@ export const useReactStore = defineStore('react', () => {
       for await (const event of text2sqlApi.reactStream(request, { signal: controller.signal })) {
         switch (event.event) {
           case 'token': {
-            // LLM 토큰 스트리밍
-            if (!isStreaming.value) {
-              isStreaming.value = true
-              streamingText.value = ''
+            // 디버그용 raw XML 토큰 스트리밍
+            if (debugStreamRawXmlTokens.value) {
+              if (!isStreaming.value) {
+                isStreaming.value = true
+                streamingText.value = ''
+              }
+              streamingText.value += event.token
+              currentIteration.value = event.iteration
             }
-            streamingText.value += event.token
-            currentIteration.value = event.iteration
+            break
+          }
+          case 'section_delta': {
+            const iter = event.iteration
+            if (!liveByIteration.value[iter]) {
+              liveByIteration.value[iter] = {
+                sections: {},
+                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
+                isRepairing: false
+              }
+            }
+            const prev = liveByIteration.value[iter].sections[event.section] || ''
+            liveByIteration.value[iter].sections[event.section] = prev + (event.delta || '')
+            currentIteration.value = iter
+            break
+          }
+          case 'metadata_item': {
+            const iter = event.iteration
+            if (!liveByIteration.value[iter]) {
+              liveByIteration.value[iter] = {
+                sections: {},
+                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
+                isRepairing: false
+              }
+            }
+            const t = event.item_type
+            if (t && liveByIteration.value[iter].metadata[t]) {
+              liveByIteration.value[iter].metadata[t].push(event.item || {})
+            }
+            currentIteration.value = iter
+            break
+          }
+          case 'format_repair': {
+            const iter = event.iteration
+            if (!liveByIteration.value[iter]) {
+              liveByIteration.value[iter] = {
+                sections: {},
+                metadata: { table: [], column: [], value: [], relationship: [], constraint: [] },
+                isRepairing: false
+              }
+            }
+            liveByIteration.value[iter].isRepairing = true
+            currentIteration.value = iter
             break
           }
           case 'phase': {
@@ -164,6 +221,95 @@ export const useReactStore = defineStore('react', () => {
           case 'step': {
             upsertStep(event.step)
             applyStateSnapshot(event.state)
+
+            // 최종 step과 live 섹션 정합성 맞추기(의미 있게 다를 때만 덮어쓰기)
+            const iter = event.step.iteration
+            const live = liveByIteration.value[iter]
+            if (live) {
+              live.isRepairing = false
+
+              const normalize = (s: string) => {
+                const text = (s ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+                return text
+                  .split('\n')
+                  .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
+                  .join('\n')
+                  .trim()
+              }
+
+              const stringifyParams = (params: Record<string, unknown>) => {
+                try {
+                  const entries = Object.entries(params ?? {})
+                  if (entries.length === 0) return ''
+                  return entries
+                    .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+                    .join(', ')
+                } catch {
+                  return ''
+                }
+              }
+
+              const parseMetadataXml = (metadataXml: string) => {
+                try {
+                  if (!metadataXml) return null
+                  const parser = new DOMParser()
+                  const doc = parser.parseFromString(metadataXml, 'application/xml')
+                  // Basic parse error detection
+                  if (doc.getElementsByTagName('parsererror')?.length) return null
+
+                  const pickItems = (tagName: string) => {
+                    const els = Array.from(doc.getElementsByTagName(tagName))
+                    return els.map(el => {
+                      const item: Record<string, unknown> = { _type: tagName }
+                      Array.from(el.children).forEach(child => {
+                        const key = child.tagName
+                        const val = (child.textContent || '').trim()
+                        if (val) item[key] = val
+                      })
+                      return item
+                    })
+                  }
+
+                  return {
+                    table: pickItems('table'),
+                    column: pickItems('column'),
+                    value: pickItems('value'),
+                    relationship: pickItems('relationship'),
+                    constraint: pickItems('constraint')
+                  }
+                } catch {
+                  return null
+                }
+              }
+
+              const patchIfDifferent = (key: string, finalText: string) => {
+                const cur = live.sections[key] || ''
+                if (normalize(cur) !== normalize(finalText)) {
+                  live.sections[key] = finalText || ''
+                }
+              }
+
+              patchIfDifferent('reasoning', event.step.reasoning || '')
+              patchIfDifferent('partial_sql', event.step.partial_sql || '')
+              patchIfDifferent('sql_completeness_check.is_complete', String(event.step.sql_completeness?.is_complete ?? ''))
+              patchIfDifferent('sql_completeness_check.missing_info', event.step.sql_completeness?.missing_info || '')
+              patchIfDifferent('sql_completeness_check.confidence_level', event.step.sql_completeness?.confidence_level || '')
+              patchIfDifferent('tool_call.tool_name', event.step.tool_call?.name || '')
+              patchIfDifferent('tool_call.parameters', stringifyParams(event.step.tool_call?.parameters ?? {}))
+
+              // collected_metadata는 아이템 단위 스트리밍을 우선 사용하되,
+              // step 완료 시점에는 metadata_xml을 파싱해 누락된 아이템을 보완(필요 시 덮어쓰기)
+              const parsedMeta = parseMetadataXml(event.step.metadata_xml || '')
+              if (parsedMeta) {
+                // 단순히 덮어쓰기(정합성 우선). 필요하면 이후에 merge 전략으로 확장 가능.
+                live.metadata.table = parsedMeta.table
+                live.metadata.column = parsedMeta.column
+                live.metadata.value = parsedMeta.value
+                live.metadata.relationship = parsedMeta.relationship
+                live.metadata.constraint = parsedMeta.constraint
+              }
+            }
+
             // 스텝 완료 후 phase 초기화 (다음 스텝 대기)
             currentPhase.value = 'idle'
             currentPhaseData.value = null
@@ -210,6 +356,7 @@ export const useReactStore = defineStore('react', () => {
     options?: {
       maxToolCalls?: number
       maxSqlSeconds?: number
+      debugStreamRawXmlTokens?: boolean
     }
   ) {
     cancelOngoing()
@@ -220,11 +367,13 @@ export const useReactStore = defineStore('react', () => {
 
     const controller = new AbortController()
     abortController.value = controller
+    debugStreamRawXmlTokens.value = !!options?.debugStreamRawXmlTokens
     await consumeStream(
       {
         question,
         max_tool_calls: options?.maxToolCalls,
-        max_sql_seconds: options?.maxSqlSeconds
+        max_sql_seconds: options?.maxSqlSeconds,
+        debug_stream_xml_tokens: debugStreamRawXmlTokens.value
       },
       controller
     )
@@ -248,7 +397,8 @@ export const useReactStore = defineStore('react', () => {
       {
         question: currentQuestion.value,
         session_state: sessionState.value,
-        user_response: userResponse
+        user_response: userResponse,
+        debug_stream_xml_tokens: debugStreamRawXmlTokens.value
       },
       controller
     )
@@ -290,6 +440,9 @@ export const useReactStore = defineStore('react', () => {
     // 토큰 스트리밍
     streamingText,
     isStreaming,
+    // 섹션별 실시간 스트리밍
+    liveByIteration,
+    debugStreamRawXmlTokens,
     // Computed
     isRunning,
     isWaitingUser,
