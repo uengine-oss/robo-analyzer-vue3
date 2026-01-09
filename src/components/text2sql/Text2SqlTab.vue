@@ -391,12 +391,27 @@
     <div v-if="reactStore.hasSteps" class="sql-side-panel">
       <div class="panel-header">
         <h3>현재 SQL</h3>
-        <button v-if="currentSql" class="copy-btn" @click="copySql(currentSql)">
+        <button v-if="displaySql" class="copy-btn" @click="copySql(displaySql)">
           <IconCopy :size="14" />
         </button>
       </div>
       <div class="sql-preview">
-        <pre v-if="currentSql"><code>{{ currentSql }}</code></pre>
+        <TransitionGroup
+          v-if="sqlDisplayLines.length"
+          name="sql-line"
+          tag="pre"
+          class="sql-diff"
+        >
+          <code
+            v-for="line in sqlDisplayLines"
+            :key="line.id"
+            :class="['sql-line', line.status]"
+          >{{ line.content }}</code>
+        </TransitionGroup>
+
+        <!-- fallback: diff 라인 생성 전/타이머 중 안전장치 -->
+        <pre v-else-if="displaySql"><code>{{ displaySql }}</code></pre>
+
         <div v-else class="sql-placeholder">SQL 생성 대기 중...</div>
       </div>
       <div v-if="latestCompleteness" class="completeness-bar">
@@ -410,11 +425,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useReactStore } from '@/stores/text2sql'
 import ResultTable from './ResultTable.vue'
 import TypeWriter from './TypeWriter.vue'
 import type { ReactExecutionResult } from '@/types'
+import { buildSqlLineDiff, type PreviousSqlLine, type SqlDiffLine } from '@/utils/sqlLineDiff'
 import {
   IconPlay, IconUpload, IconSettings, IconChevronDown,
   IconCopy
@@ -480,13 +496,67 @@ const inputPlaceholder = computed(() =>
     : '질문을 입력하세요... (Enter로 전송)'
 )
 
-const currentSql = computed(() =>
-  reactStore.finalSql || reactStore.latestPartialSql || ''
+// 스텝 단위 diff를 위해 latestStep.partial_sql만 사용하고,
+// finalSql 도착 시에도 동일한 패널에서 마지막 diff 애니메이션을 보여준다.
+const displaySql = computed(() =>
+  reactStore.finalSql || reactStore.latestStep?.partial_sql || ''
 )
 
 const latestCompleteness = computed(() =>
   reactStore.latestStep?.sql_completeness ?? null
 )
+
+// ============================================================================
+// Current SQL diff (right panel only)
+// ============================================================================
+
+const sqlDisplayLines = ref<SqlDiffLine[]>([])
+const previousSqlLines = ref<PreviousSqlLine[]>([])
+const diffTimers = ref<number[]>([])
+
+function clearDiffTimers() {
+  diffTimers.value.forEach(t => window.clearTimeout(t))
+  diffTimers.value = []
+}
+
+watch(
+  () => displaySql.value,
+  (newSql) => {
+    clearDiffTimers()
+
+    if (!newSql) {
+      sqlDisplayLines.value = []
+      previousSqlLines.value = []
+      return
+    }
+
+    const { displayLines, nextPrevious } = buildSqlLineDiff(previousSqlLines.value, newSql, {
+      modifiedSimilarityThreshold: 0.62,
+      modifiedLookahead: 3
+    })
+
+    sqlDisplayLines.value = displayLines
+    previousSqlLines.value = nextPrevious
+
+    // 삭제 라인을 원래 위치에서 잠깐 보여준 후 제거
+    diffTimers.value.push(window.setTimeout(() => {
+      sqlDisplayLines.value = sqlDisplayLines.value.filter(l => l.status !== 'removed')
+    }, 1000))
+
+    // added/modified 하이라이트를 잠시 후 해제
+    diffTimers.value.push(window.setTimeout(() => {
+      sqlDisplayLines.value = sqlDisplayLines.value.map(l => ({
+        ...l,
+        status: l.status === 'added' || l.status === 'modified' ? 'unchanged' : l.status
+      }))
+    }, 2500))
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  clearDiffTimers()
+})
 
 const liveCurrent = computed(() => reactStore.liveByIteration[reactStore.currentIteration] ?? null)
 const liveExploring = computed(() => liveCurrent.value?.sections?.exploring ?? '')
@@ -1924,6 +1994,64 @@ $badge-error: #f87171;
       border: 1px solid $border-subtle;
       border-radius: 12px;
       overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    // diff view
+    .sql-diff {
+      margin: 0;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid $border-subtle;
+      border-radius: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+
+    .sql-line {
+      display: block;
+      padding: 2px 8px;
+      margin: 2px 0;
+      border-radius: 6px;
+      transition: all 0.25s ease;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: $badge-tool;
+    }
+
+    .sql-line.added {
+      background: rgba($badge-success, 0.14);
+      border-left: 3px solid $badge-success;
+    }
+
+    .sql-line.removed {
+      background: rgba($badge-error, 0.14);
+      border-left: 3px solid $badge-error;
+      text-decoration: line-through;
+      opacity: 0.75;
+    }
+
+    .sql-line.modified {
+      background: rgba($badge-warning, 0.14);
+      border-left: 3px solid $badge-warning;
+    }
+
+    // TransitionGroup name="sql-line"
+    .sql-line-enter-active,
+    .sql-line-leave-active,
+    .sql-line-move {
+      transition: all 0.25s ease;
+    }
+
+    .sql-line-enter-from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+
+    .sql-line-leave-to {
+      opacity: 0;
+      transform: translateX(8px);
     }
 
     code {

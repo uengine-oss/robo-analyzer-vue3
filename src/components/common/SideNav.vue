@@ -6,10 +6,10 @@
 import { ref } from 'vue'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
-import { 
-  IconFolder, 
-  IconDatabase, 
-  IconMessageSquare, 
+import {
+  IconFolder,
+  IconDatabase,
+  IconMessageSquare,
   IconLineage,
   IconBook,
   IconBarChart,
@@ -43,6 +43,7 @@ interface NavGroup {
 const navItems: NavItem[] = [
   { id: 'upload', label: '소스', icon: IconFolder },
   { id: 'graph', label: '메타데이터', icon: IconDatabase },
+  { id: 'text2sql', label: '자연어 질의', icon: IconMessageSquare },
   { id: 'langchain', label: 'LangChain 질의', icon: IconMessageSquare },
   { id: 'lineage', label: '데이터 리니지', icon: IconLineage },
   { id: 'glossary', label: '용어 관리', icon: IconBook },
@@ -77,28 +78,18 @@ const isObservabilityActive = () => {
   <nav class="side-nav">
     <div class="nav-items">
       <!-- 기본 네비게이션 아이템 -->
-      <button
-        v-for="item in navItems"
-        :key="item.id"
-        class="nav-item"
-        :class="{ active: activeTab === item.id }"
-        @click="setActiveTab(item.id)"
-        :title="item.label"
-      >
+      <button v-for="item in navItems" :key="item.id" class="nav-item" :class="{ active: activeTab === item.id }"
+        @click="setActiveTab(item.id)" :title="item.label">
         <span class="nav-icon">
           <component :is="item.icon" :size="20" />
         </span>
         <span class="nav-label">{{ item.label }}</span>
       </button>
-      
+
       <!-- Observability 그룹 (확장 가능) -->
       <div class="nav-group" :class="{ expanded: isObservabilityExpanded, active: isObservabilityActive() }">
-        <button
-          class="nav-item nav-group-header"
-          :class="{ active: isObservabilityActive() }"
-          @click="toggleObservability"
-          :title="observabilityGroup.label"
-        >
+        <button class="nav-item nav-group-header" :class="{ active: isObservabilityActive() }"
+          @click="toggleObservability" :title="observabilityGroup.label">
           <span class="nav-icon">
             <component :is="observabilityGroup.icon" :size="20" />
           </span>
@@ -107,16 +98,10 @@ const isObservabilityActive = () => {
             <IconChevronDown :size="14" />
           </span>
         </button>
-        
+
         <div class="nav-group-children" v-show="isObservabilityExpanded">
-          <button
-            v-for="child in observabilityGroup.children"
-            :key="child.id"
-            class="nav-item nav-child"
-            :class="{ active: activeTab === child.id }"
-            @click="setActiveTab(child.id)"
-            :title="child.label"
-          >
+          <button v-for="child in observabilityGroup.children" :key="child.id" class="nav-item nav-child"
+            :class="{ active: activeTab === child.id }" @click="setActiveTab(child.id)" :title="child.label">
             <span class="nav-icon">
               <component :is="child.icon" :size="18" />
             </span>
@@ -140,15 +125,15 @@ const isObservabilityActive = () => {
   transition: width 0.2s ease;
   overflow-y: auto;
   overflow-x: hidden;
-  
+
   &:hover {
     width: 180px;
-    
+
     .nav-label {
       opacity: 1;
       max-width: 100px;
     }
-    
+
     .nav-chevron {
       opacity: 1;
     }
@@ -177,7 +162,7 @@ const isObservabilityActive = () => {
   color: var(--color-text-light);
   width: 100%;
   text-align: left;
-  
+
   &::before {
     content: '';
     position: absolute;
@@ -190,24 +175,24 @@ const isObservabilityActive = () => {
     border-radius: 0 2px 2px 0;
     transition: height 0.2s ease;
   }
-  
+
   &:hover {
     background: var(--color-bg-tertiary);
     color: var(--color-text);
   }
-  
+
   &.active {
     background: linear-gradient(135deg, rgba(34, 139, 230, 0.15) 0%, rgba(34, 139, 230, 0.08) 100%);
     color: var(--color-accent);
-    
+
     &::before {
       height: 24px;
     }
-    
+
     .nav-icon {
       transform: scale(1.1);
     }
-    
+
     .nav-label {
       color: var(--color-accent);
       font-weight: 600;
@@ -240,7 +225,7 @@ const isObservabilityActive = () => {
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
-  
+
   &.rotated {
     transform: rotate(180deg);
   }
@@ -250,20 +235,20 @@ const isObservabilityActive = () => {
 .nav-group {
   display: flex;
   flex-direction: column;
-  
+
   &.active .nav-group-header {
     color: var(--color-accent);
-    
+
     .nav-icon {
       color: var(--color-accent);
     }
   }
-  
+
   &.expanded {
     background: var(--color-bg-tertiary);
     border-radius: var(--radius-lg);
     margin-top: 4px;
-    
+
     .nav-group-header {
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     }
@@ -288,22 +273,22 @@ const isObservabilityActive = () => {
   padding: 10px 12px;
   padding-left: 20px;
   border-radius: var(--radius-md);
-  
+
   &::before {
     left: 8px;
   }
-  
+
   .nav-icon {
     color: var(--color-text-muted);
   }
-  
+
   &:hover .nav-icon {
     color: var(--color-text);
   }
-  
+
   &.active {
     background: linear-gradient(135deg, rgba(34, 139, 230, 0.2) 0%, rgba(34, 139, 230, 0.1) 100%);
-    
+
     .nav-icon {
       color: var(--color-accent);
     }
