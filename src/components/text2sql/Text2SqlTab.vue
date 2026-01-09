@@ -1,5 +1,12 @@
 <template>
   <div class="text2sql-tab">
+    <!-- 히스토리 패널 -->
+    <HistoryPanel 
+      :is-open="historyOpen" 
+      @toggle="historyOpen = !historyOpen"
+      @select="handleHistorySelect"
+    />
+
     <!-- 채팅 컨테이너 -->
     <div class="chat-container">
       <!-- 채팅 메시지 영역 -->
@@ -222,6 +229,17 @@
                 <div class="message-header">
                   <span class="phase-label result">실행 결과</span>
                   <span class="result-meta">{{ msg.rowCount }}개 행 · {{ msg.execTime }}ms</span>
+                  
+                  <!-- OLAP 내보내기 버튼 (복잡한 쿼리일 때) -->
+                  <button 
+                    v-if="getResultSql(msg) && isComplexQuery(getResultSql(msg))"
+                    class="olap-export-btn"
+                    @click="exportToOlapFromMsg(msg)"
+                    title="OLAP으로 내보내기 - DW 스키마 설계"
+                  >
+                    <IconBarChart :size="14" />
+                    <span>OLAP 큐브 설계</span>
+                  </button>
                 </div>
                 <ResultTable v-if="msg.data" :data="msg.data" />
               </div>
@@ -426,14 +444,16 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { useReactStore } from '@/stores/text2sql'
+import { useReactStore, useHistoryStore, type QueryHistoryItem } from '@/stores/text2sql'
+import { useSessionStore } from '@/stores/session'
 import ResultTable from './ResultTable.vue'
 import TypeWriter from './TypeWriter.vue'
+import HistoryPanel from './HistoryPanel.vue'
 import type { ReactExecutionResult } from '@/types'
 import { buildSqlLineDiff, type PreviousSqlLine, type SqlDiffLine } from '@/utils/sqlLineDiff'
 import {
   IconPlay, IconUpload, IconSettings, IconChevronDown,
-  IconCopy
+  IconCopy, IconBarChart
 } from '@/components/icons'
 
 // Types
@@ -452,11 +472,60 @@ interface ChatMessage {
   execTime?: number
   data?: ReactExecutionResult
   icon?: string
+  sql?: string  // 결과에 연결된 SQL (히스토리 선택 시 사용)
+  question?: string  // 원본 질문 (OLAP 내보내기 시 사용)
 }
 
 const reactStore = useReactStore()
+const historyStore = useHistoryStore()
+const sessionStore = useSessionStore()
+
+// 복잡한 쿼리 판별 (1개 이상 JOIN, 서브쿼리 등)
+function isComplexQuery(sql: string | null): boolean {
+  if (!sql) return false
+  const upperSql = sql.toUpperCase()
+  
+  const joinCount = (upperSql.match(/\bJOIN\b/g) || []).length
+  
+  return (
+    joinCount >= 1 ||  // 1개 이상 JOIN
+    (upperSql.match(/SELECT/g) || []).length > 1 || // 서브쿼리
+    upperSql.includes('GROUP BY') ||  // 집계 쿼리
+    upperSql.includes('HAVING') ||
+    upperSql.includes('UNION') ||
+    upperSql.includes('WITH ')  // CTE
+  )
+}
+
+// OLAP으로 내보내기
+function exportToOlap() {
+  if (!reactStore.finalSql) return
+  sessionStore.navigateToOlapWithSQL(reactStore.currentQuestion, reactStore.finalSql)
+}
+
+// 메시지에서 SQL 가져오기 (store 또는 msg.sql)
+function getResultSql(msg: ChatMessage): string | null {
+  return msg.sql || reactStore.finalSql || null
+}
+
+// 메시지에서 OLAP으로 내보내기
+function exportToOlapFromMsg(msg: ChatMessage) {
+  const sql = getResultSql(msg)
+  const question = msg.question || reactStore.currentQuestion
+  
+  console.log('[OLAP Export from Result] msg:', msg)
+  console.log('[OLAP Export from Result] sql:', sql)
+  console.log('[OLAP Export from Result] question:', question)
+  
+  if (!sql) {
+    alert('SQL 쿼리가 없습니다.')
+    return
+  }
+  sessionStore.navigateToOlapWithSQL(question, sql)
+}
 
 // Refs
+const historyOpen = ref(true)
 const chatContainer = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const inputText = ref('')
@@ -822,13 +891,74 @@ watch(() => reactStore.status, (status) => {
         content: '',
         rowCount: reactStore.executionResult.row_count,
         execTime: Math.round(reactStore.executionResult.execution_time_ms),
-        data: reactStore.executionResult
+        data: reactStore.executionResult,
+        sql: reactStore.finalSql || undefined,
+        question: reactStore.currentQuestion
       })
     }
   } else if (status === 'error' && reactStore.error) {
     addMessage({
       type: 'error',
       content: reactStore.error
+    })
+  }
+})
+
+// 히스토리 항목 선택 핸들러
+function handleHistorySelect(item: QueryHistoryItem) {
+  // 선택한 히스토리의 질문과 결과를 표시
+  chatMessages.value = []
+  
+  // 사용자 질문 추가
+  addMessage({ type: 'user', content: item.question })
+  
+  // SQL이 있으면 표시
+  if (item.final_sql) {
+    addMessage({ type: 'sql', content: item.final_sql })
+  }
+  
+  // 실행 결과가 있으면 표시
+  if (item.execution_result) {
+    addMessage({
+      type: 'result',
+      content: '',
+      rowCount: item.execution_result.row_count,
+      execTime: Math.round(item.execution_result.execution_time_ms),
+      data: item.execution_result,
+      sql: item.final_sql || undefined,  // OLAP 버튼용 SQL
+      question: item.question  // OLAP 버튼용 질문
+    })
+  }
+  
+  // 에러가 있으면 표시
+  if (item.status === 'error' && item.error_message) {
+    addMessage({ type: 'error', content: item.error_message })
+  }
+}
+
+// 쿼리 완료 시 히스토리 자동 저장
+let saveStartTime = 0
+
+watch(() => reactStore.status, async (status, oldStatus) => {
+  // running 시작 시 시간 기록
+  if (status === 'running' && oldStatus !== 'running') {
+    saveStartTime = Date.now()
+  }
+  
+  // 완료 또는 에러 시 저장
+  if (status === 'completed' || status === 'error') {
+    const executionTimeMs = Date.now() - saveStartTime
+    
+    await historyStore.saveToHistory({
+      question: reactStore.currentQuestion,
+      final_sql: reactStore.finalSql,
+      validated_sql: reactStore.validatedSql,
+      execution_result: reactStore.executionResult,
+      row_count: reactStore.executionResult?.row_count ?? null,
+      status: status === 'completed' ? 'completed' : 'error',
+      error_message: reactStore.error,
+      steps_count: reactStore.steps.length,
+      execution_time_ms: executionTimeMs
     })
   }
 })
@@ -1693,8 +1823,45 @@ $badge-error: #f87171;
   .result-meta {
     font-size: 11px;
     color: $text-muted;
-    margin-left: auto;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+}
+
+// OLAP 내보내기 버튼
+.olap-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, rgba(34, 139, 230, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
+  border: 1px solid rgba(34, 139, 230, 0.3);
+  border-radius: 8px;
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  animation: pulse-glow 2s ease-in-out infinite;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(34, 139, 230, 0.25) 0%, rgba(124, 58, 237, 0.25) 100%);
+    border-color: rgba(34, 139, 230, 0.5);
+    box-shadow: 0 4px 16px rgba(34, 139, 230, 0.25);
+    transform: translateY(-1px);
+  }
+
+  svg {
+    color: #38bdf8;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 139, 230, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(34, 139, 230, 0.2);
   }
 }
 

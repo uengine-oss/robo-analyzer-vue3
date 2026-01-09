@@ -37,6 +37,14 @@ export const useSessionStore = defineStore('session', () => {
   // 현재 활성 탭 - 새로고침 시 항상 업로드 탭으로 시작
   const activeTab = ref<string>('upload')
   
+  // OLAP으로 전달할 SQL 정보
+  interface OlapTransferData {
+    question: string
+    sql: string
+    fromHistory?: boolean
+  }
+  const olapTransferData = ref<OlapTransferData | null>(null)
+  
   // 세션 ID 변경 시 로컬스토리지에 저장
   watch(sessionId, (newId) => {
     saveToStorage(STORAGE_KEY_SESSION_ID, newId)
@@ -74,6 +82,23 @@ export const useSessionStore = defineStore('session', () => {
     activeTab.value = 'upload'
   }
   
+  // OLAP으로 SQL 전달하며 이동
+  const navigateToOlapWithSQL = (question: string, sql: string) => {
+    olapTransferData.value = {
+      question,
+      sql,
+      fromHistory: true
+    }
+    activeTab.value = 'olap'
+  }
+  
+  // OLAP 전달 데이터 소비 (사용 후 초기화)
+  const consumeOlapTransferData = () => {
+    const data = olapTransferData.value
+    olapTransferData.value = null
+    return data
+  }
+  
   // API Key 설정
   const setApiKey = (key: string) => {
     apiKey.value = key
@@ -97,12 +122,15 @@ export const useSessionStore = defineStore('session', () => {
     sessionId,
     apiKey,
     activeTab,
+    olapTransferData,
     createNewSession,
     clearSession,
     setApiKey,
     setActiveTab,
     goHome,
-    getHeaders
+    getHeaders,
+    navigateToOlapWithSQL,
+    consumeOlapTransferData
   }
 })
 

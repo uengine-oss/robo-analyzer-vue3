@@ -469,6 +469,180 @@ export const useReactStore = defineStore('react', () => {
 // Schema 스토어
 // ============================================================================
 
+// ============================================================================
+// History 스토어
+// ============================================================================
+
+export interface QueryHistoryItem {
+  id: number
+  question: string
+  final_sql: string | null
+  validated_sql: string | null
+  execution_result: ReactExecutionResult | null
+  row_count: number | null
+  status: 'pending' | 'completed' | 'error'
+  error_message: string | null
+  steps_count: number | null
+  execution_time_ms: number | null
+  created_at: string
+  updated_at: string
+  metadata: Record<string, unknown> | null
+}
+
+export interface QueryHistoryResponse {
+  items: QueryHistoryItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export const useHistoryStore = defineStore('text2sql-history', () => {
+  const items = ref<QueryHistoryItem[]>([])
+  const total = ref(0)
+  const page = ref(1)
+  const pageSize = ref(20)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const selectedItem = ref<QueryHistoryItem | null>(null)
+
+  // API base URL
+  const API_BASE = 'http://localhost:9000/text2sql/history'
+
+  // 히스토리 목록 불러오기
+  async function fetchHistory(options?: { page?: number; search?: string; status?: string }) {
+    loading.value = true
+    error.value = null
+
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(options?.page || 1))
+      params.set('page_size', String(pageSize.value))
+      if (options?.search) params.set('search', options.search)
+      if (options?.status) params.set('status', options.status)
+
+      const response = await fetch(`${API_BASE}?${params}`)
+      if (!response.ok) throw new Error('Failed to fetch history')
+
+      const data: QueryHistoryResponse = await response.json()
+      items.value = data.items
+      total.value = data.total
+      page.value = data.page
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : 'Failed to fetch history'
+      console.error('History fetch error:', err)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // 히스토리 항목 저장
+  async function saveToHistory(entry: {
+    question: string
+    final_sql?: string | null
+    validated_sql?: string | null
+    execution_result?: ReactExecutionResult | null
+    row_count?: number | null
+    status?: 'completed' | 'error'
+    error_message?: string | null
+    steps_count?: number | null
+    execution_time_ms?: number | null
+    metadata?: Record<string, unknown> | null
+  }): Promise<QueryHistoryItem | null> {
+    try {
+      const response = await fetch(API_BASE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry)
+      })
+
+      if (!response.ok) throw new Error('Failed to save history')
+
+      const saved: QueryHistoryItem = await response.json()
+      // 최신 항목을 리스트 앞에 추가
+      items.value = [saved, ...items.value]
+      total.value++
+      return saved
+    } catch (err) {
+      console.error('History save error:', err)
+      return null
+    }
+  }
+
+  // 히스토리 항목 삭제
+  async function deleteHistory(id: number): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete history')
+
+      items.value = items.value.filter(item => item.id !== id)
+      total.value--
+      if (selectedItem.value?.id === id) {
+        selectedItem.value = null
+      }
+      return true
+    } catch (err) {
+      console.error('History delete error:', err)
+      return false
+    }
+  }
+
+  // 전체 삭제
+  async function deleteAllHistory(): Promise<boolean> {
+    try {
+      const response = await fetch(API_BASE, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete all history')
+
+      items.value = []
+      total.value = 0
+      selectedItem.value = null
+      return true
+    } catch (err) {
+      console.error('History delete all error:', err)
+      return false
+    }
+  }
+
+  // 히스토리 항목 선택
+  function selectItem(item: QueryHistoryItem | null) {
+    selectedItem.value = item
+  }
+
+  // 다음 페이지
+  async function nextPage() {
+    if (page.value * pageSize.value < total.value) {
+      await fetchHistory({ page: page.value + 1 })
+    }
+  }
+
+  // 이전 페이지
+  async function prevPage() {
+    if (page.value > 1) {
+      await fetchHistory({ page: page.value - 1 })
+    }
+  }
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    loading,
+    error,
+    selectedItem,
+    fetchHistory,
+    saveToHistory,
+    deleteHistory,
+    deleteAllHistory,
+    selectItem,
+    nextPage,
+    prevPage
+  }
+})
+
+// ============================================================================
+// Schema 스토어
+// ============================================================================
+
 export const useText2SqlSchemaStore = defineStore('text2sql-schema', () => {
   // 상태
   const tables = ref<Text2SqlTableInfo[]>([])

@@ -5,10 +5,12 @@
  */
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useOlapStore } from '@/stores/olap'
+import { useSessionStore } from '@/stores/session'
 import * as olapApi from '@/services/olap-api'
 import mermaid from 'mermaid'
 
 const store = useOlapStore()
+const sessionStore = useSessionStore()
 
 // State
 const loading = ref(false)
@@ -34,6 +36,10 @@ const airflowDag = ref<any>(null)
 const airflowLoading = ref(false)
 const airflowError = ref<string | null>(null)
 
+// Text2SQL에서 전달받은 SQL 정보
+const transferredFromText2Sql = ref(false)
+const transferredSQL = ref('')
+
 // Initialize Mermaid
 onMounted(async () => {
   mermaid.initialize({
@@ -50,6 +56,35 @@ onMounted(async () => {
   })
   
   await fetchCatalog()
+  
+  // Text2SQL에서 전달받은 데이터 확인
+  const transferData = sessionStore.consumeOlapTransferData()
+  if (transferData && transferData.fromHistory) {
+    transferredFromText2Sql.value = true
+    transferredSQL.value = transferData.sql || ''
+    
+    // SQL이 있는 경우와 없는 경우 분기
+    if (transferData.sql && transferData.sql.trim()) {
+      // ETL 설명에 질문과 SQL 정보 자동 입력
+      etlDescription.value = `다음 SQL 쿼리를 분석하여 DW 스타 스키마를 설계해주세요:
+
+질문: ${transferData.question}
+
+SQL:
+${transferData.sql}
+
+위 쿼리에서 팩트 테이블과 디멘션 테이블을 추출하고, 적절한 측정값(Measures)과 디멘션 계층(Hierarchies)을 구성해주세요.`
+      
+      success.value = 'Text2SQL 히스토리에서 쿼리를 불러왔습니다. "AI 스타 스키마 생성"을 클릭하세요.'
+    } else {
+      // SQL이 없는 경우
+      etlDescription.value = `질문: ${transferData.question}
+
+(SQL 쿼리가 전달되지 않았습니다. 위 질문을 바탕으로 DW 스타 스키마를 설계해주세요.)`
+      
+      error.value = 'SQL 쿼리가 전달되지 않았습니다. 히스토리에서 SQL이 있는 항목을 선택해주세요.'
+    }
+  }
 })
 
 // Fetch catalog from Neo4j
@@ -472,6 +507,16 @@ function generateMondrianXML(): string {
     
     <!-- Main Content -->
     <main class="design-content">
+      <!-- Text2SQL Transfer Banner -->
+      <div v-if="transferredFromText2Sql" class="transfer-banner">
+        <div class="banner-icon">📊</div>
+        <div class="banner-content">
+          <strong>Text2SQL 히스토리에서 가져온 쿼리</strong>
+          <p>복잡한 쿼리를 분석하여 DW 스타 스키마로 변환합니다.</p>
+        </div>
+        <button class="banner-close" @click="transferredFromText2Sql = false">×</button>
+      </div>
+
       <!-- AI Input -->
       <section class="ai-section">
         <h3>🤖 AI 큐브 설계</h3>
@@ -619,6 +664,67 @@ function generateMondrianXML(): string {
 </template>
 
 <style lang="scss" scoped>
+// Transfer Banner from Text2SQL
+.transfer-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(34, 139, 230, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%);
+  border: 1px solid rgba(34, 139, 230, 0.3);
+  border-radius: 12px;
+  animation: slideIn 0.3s ease-out;
+  
+  .banner-icon {
+    font-size: 28px;
+  }
+  
+  .banner-content {
+    flex: 1;
+    
+    strong {
+      display: block;
+      color: #38bdf8;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    
+    p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+  }
+  
+  .banner-close {
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--color-text);
+    }
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .cube-designer {
   display: flex;
   height: 100%;

@@ -1,10 +1,12 @@
 /**
  * OLAP API Service
  * data-platform-olap 백엔드와 통신하는 API 서비스 (fetch 기반)
+ * API Gateway를 통해 연결됨
  */
 
-// OLAP Backend URL - 직접 연결
-const OLAP_API_BASE = import.meta.env.VITE_OLAP_API_URL ?? 'http://localhost:8002/api'
+// API Gateway URL - 모든 마이크로서비스 요청의 단일 진입점
+const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? 'http://localhost:9000'
+const OLAP_API_BASE = `${API_GATEWAY_URL}/olap/api`
 
 async function fetchJson(url: string, options?: RequestInit) {
   const response = await fetch(`${OLAP_API_BASE}${url}`, {

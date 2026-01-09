@@ -47,7 +47,8 @@ const navItems: NavItem[] = [
   { id: 'langchain', label: 'LangChain 질의', icon: IconMessageSquare },
   { id: 'lineage', label: '데이터 리니지', icon: IconLineage },
   { id: 'glossary', label: '용어 관리', icon: IconBook },
-  { id: 'olap', label: 'OLAP 분석', icon: IconBarChart }
+  { id: 'olap', label: 'OLAP 분석', icon: IconBarChart },
+  { id: 'text2sql', label: '자연어 질의', icon: IconMessageSquare }
 ]
 
 const observabilityGroup: NavGroup = {
