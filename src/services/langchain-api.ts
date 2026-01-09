@@ -1,8 +1,11 @@
 /**
  * LangChain Text2SQL API Service
+ * API Gateway를 통해 연결됨
  */
 
-const LANGCHAIN_API_URL = 'http://localhost:8001/api'
+// API Gateway URL - 모든 마이크로서비스 요청의 단일 진입점
+const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? 'http://localhost:9000'
+const LANGCHAIN_API_URL = `${API_GATEWAY_URL}/langchain/api`
 
 export interface LangChainRequest {
   question: string

@@ -122,6 +122,15 @@ export const useProjectStore = defineStore('project', () => {
   const completedSteps = ref(0)
   
   // ==========================================================================
+  // 상태 - 데이터 확인 모달
+  // ==========================================================================
+  
+  const showDataConfirmModal = ref(false)
+  const pendingNodeCount = ref(0)
+  const pendingUploadFiles = ref<File[]>([])
+  const pendingUploadMeta = ref<BackendRequestMetadata | null>(null)
+  
+  // ==========================================================================
   // 상태 - 통합 콘솔 메시지
   // ==========================================================================
   
@@ -483,7 +492,7 @@ export const useProjectStore = defineStore('project', () => {
   
   /**
    * 파일 업로드 후 파싱 → 분석 → 인제스천 순차 실행
-   * 기존 데이터가 있으면 삭제 여부를 확인합니다.
+   * 기존 데이터가 있으면 모달을 통해 처리 방법을 선택합니다.
    */
   async function uploadFiles(files: File[], meta: BackendRequestMetadata) {
     // 업로드 전에 기존 데이터 확인
@@ -491,28 +500,65 @@ export const useProjectStore = defineStore('project', () => {
     const { hasData, nodeCount } = await checkExistingData()
     
     if (hasData) {
-      const confirmed = window.confirm(
-        `Neo4j에 기존 데이터가 ${nodeCount}개 있습니다.\n` +
-        `새로 업로드하면 기존 데이터가 삭제됩니다.\n\n` +
-        `계속하시겠습니까?`
-      )
-      
-      if (!confirmed) {
-        addMessage('message', '⏹️ 업로드가 취소되었습니다.')
-        return
-      }
-      
+      // 모달 표시를 위해 상태 저장
+      pendingNodeCount.value = nodeCount
+      pendingUploadFiles.value = files
+      pendingUploadMeta.value = meta
+      showDataConfirmModal.value = true
+      return // 모달에서 사용자 선택을 기다림
+    }
+    
+    // 기존 데이터가 없으면 바로 진행
+    await executeUploadPipeline(files, meta)
+  }
+  
+  /**
+   * 데이터 확인 모달에서 사용자 선택 처리
+   */
+  async function handleDataConfirmAction(action: 'delete' | 'append' | 'cancel') {
+    showDataConfirmModal.value = false
+    
+    if (action === 'cancel') {
+      addMessage('message', '⏹️ 업로드가 취소되었습니다.')
+      pendingUploadFiles.value = []
+      pendingUploadMeta.value = null
+      return
+    }
+    
+    if (action === 'delete') {
       // 기존 데이터 삭제
       addMessage('message', '🗑️ 기존 데이터 삭제 중...')
       try {
         await roboApi.delete(sessionStore.getHeaders())
         addMessage('message', '✅ 기존 데이터 삭제 완료')
+        // 로컬 그래프 데이터도 초기화
+        nodeMap.value.clear()
+        linkMap.value.clear()
       } catch (error) {
         addMessage('error', `❌ 기존 데이터 삭제 실패: ${error}`)
+        pendingUploadFiles.value = []
+        pendingUploadMeta.value = null
         throw error
       }
+    } else if (action === 'append') {
+      addMessage('message', '📎 기존 데이터에 추가합니다...')
     }
     
+    // 저장된 파일과 메타데이터로 업로드 파이프라인 실행
+    const files = pendingUploadFiles.value
+    const meta = pendingUploadMeta.value
+    pendingUploadFiles.value = []
+    pendingUploadMeta.value = null
+    
+    if (files.length > 0 && meta) {
+      await executeUploadPipeline(files, meta)
+    }
+  }
+  
+  /**
+   * 실제 업로드 파이프라인 실행 (업로드 → 파싱 → 분석)
+   */
+  async function executeUploadPipeline(files: File[], meta: BackendRequestMetadata) {
     isProcessing.value = true
     completedSteps.value = 0
     clearMessages()
@@ -600,6 +646,10 @@ export const useProjectStore = defineStore('project', () => {
     consoleMessages,
     graphEvents,
     
+    // State - 데이터 확인 모달
+    showDataConfirmModal,
+    pendingNodeCount,
+    
     // Computed (하위호환성: uploadMessages로도 접근 가능)
     uploadMessages: consoleMessages,
     metadata,
@@ -621,6 +671,7 @@ export const useProjectStore = defineStore('project', () => {
     
     // Actions - Pipeline
     uploadFiles,
+    handleDataConfirmAction,
     loadExistingGraphData,
     
     // Actions - Misc

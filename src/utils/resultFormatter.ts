@@ -26,7 +26,20 @@ export interface ParsedToolCall {
   input: Record<string, unknown>
 }
 
-export type ParsedContent = ParsedSql | ParsedTable | ParsedText | ParsedToolCall
+export interface ParsedOlapSuggestion {
+  type: 'olap'
+  complexityScore: number
+  reasons: string[]
+  frontendUrl: string
+}
+
+export interface ParsedLink {
+  type: 'link'
+  text: string
+  url: string
+}
+
+export type ParsedContent = ParsedSql | ParsedTable | ParsedText | ParsedToolCall | ParsedOlapSuggestion | ParsedLink
 
 /**
  * 결과 문자열을 파싱하여 구조화된 데이터로 변환
@@ -92,6 +105,42 @@ export function parseResultContent(content: string): ParsedContent[] {
     }
   }
   
+  // OLAP 최적화 제안 파싱
+  if (content.includes('OLAP 최적화 제안') || content.includes('OLAP 최적화 바로가기')) {
+    const olapParsed = parseOlapSuggestion(content)
+    if (olapParsed) {
+      // OLAP 이전 텍스트가 있으면 먼저 추가
+      const olapIndex = content.indexOf('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+      if (olapIndex > 0) {
+        const beforeOlap = content.substring(0, olapIndex).trim()
+        if (beforeOlap) {
+          // 재귀적으로 이전 내용 파싱
+          results.push(...parseResultContent(beforeOlap))
+        }
+      }
+      results.push(olapParsed)
+      return results
+    }
+  }
+  
+  // URL 링크 파싱
+  const urlMatch = content.match(/🔗\s*(?:OLAP 최적화 바로가기|바로가기):\s*(https?:\/\/[^\s]+)/i)
+  if (urlMatch) {
+    const beforeUrl = content.substring(0, content.indexOf(urlMatch[0])).trim()
+    if (beforeUrl) {
+      results.push({
+        type: 'text',
+        content: beforeUrl,
+      })
+    }
+    results.push({
+      type: 'link',
+      text: 'OLAP 최적화 바로가기',
+      url: urlMatch[1],
+    })
+    return results
+  }
+  
   // 그 외는 일반 텍스트로 처리
   if (content.trim()) {
     results.push({
@@ -101,6 +150,42 @@ export function parseResultContent(content: string): ParsedContent[] {
   }
   
   return results
+}
+
+/**
+ * OLAP 최적화 제안 파싱
+ */
+function parseOlapSuggestion(content: string): ParsedOlapSuggestion | null {
+  // 복잡도 점수 추출
+  const scoreMatch = content.match(/복잡도 점수:\s*(\d+)|Complexity Score:\s*(\d+)/i)
+  const complexityScore = scoreMatch ? parseInt(scoreMatch[1] || scoreMatch[2], 10) : 0
+  
+  // 복잡성 요인 추출
+  const reasons: string[] = []
+  const reasonMatches = content.match(/•\s*([^\n•]+)/g)
+  if (reasonMatches) {
+    for (const match of reasonMatches) {
+      const reason = match.replace(/•\s*/, '').trim()
+      if (reason) {
+        reasons.push(reason)
+      }
+    }
+  }
+  
+  // 프론트엔드 URL 추출
+  const urlMatch = content.match(/🔗\s*(?:OLAP 최적화 바로가기|바로가기):\s*(https?:\/\/[^\s]+)/i)
+  const frontendUrl = urlMatch ? urlMatch[1] : ''
+  
+  if (!frontendUrl && complexityScore === 0 && reasons.length === 0) {
+    return null
+  }
+  
+  return {
+    type: 'olap',
+    complexityScore,
+    reasons,
+    frontendUrl,
+  }
 }
 
 /**

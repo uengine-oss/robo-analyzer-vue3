@@ -18,27 +18,10 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000,
-    proxy: {
-      // ANTLR Server - 파일 업로드, 파싱
-      '/antlr': {
-        target: 'http://127.0.0.1:8081',
-        changeOrigin: true
-      },
-      // ROBO Analyzer - 소스 분석, 그래프 생성
-      '/robo': {
-        target: 'http://127.0.0.1:5502',
-        changeOrigin: true
-      },
-      // Text2SQL API - 테이블 조회, ingest, ReAct
-      '/text2sql': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true
-      }
-    }
+    port: 3000
+    // proxy 설정 제거됨 - API Gateway(localhost:9000)를 통해 직접 연결
   },
   optimizeDeps: {
     include: ['monaco-editor']
   }
 })
-

@@ -94,6 +94,38 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     return filteredTables.value.filter(t => !onCanvas.has(t.name))
   })
   
+  // 스키마 목록 (정렬됨)
+  const schemas = computed(() => {
+    const schemaSet = new Set<string>()
+    allTables.value.forEach(table => {
+      schemaSet.add(table.schema || 'public')
+    })
+    return Array.from(schemaSet).sort()
+  })
+  
+  // 스키마별 테이블 그룹화 (캔버스에 없는 테이블만)
+  const tablesBySchema = computed(() => {
+    const onCanvas = new Set(tablesOnCanvas.value)
+    const grouped: Record<string, Text2SqlTableInfo[]> = {}
+    
+    filteredTables.value.forEach(table => {
+      if (onCanvas.has(table.name)) return
+      
+      const schema = table.schema || 'public'
+      if (!grouped[schema]) {
+        grouped[schema] = []
+      }
+      grouped[schema].push(table)
+    })
+    
+    // 각 스키마 내 테이블 정렬
+    Object.keys(grouped).forEach(schema => {
+      grouped[schema].sort((a, b) => a.name.localeCompare(b.name))
+    })
+    
+    return grouped
+  })
+  
   // Actions
   async function loadAllTables() {
     loading.value = true
@@ -638,6 +670,8 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     filteredTables,
     tablesOnCanvas,
     tablesNotOnCanvas,
+    schemas,
+    tablesBySchema,
     
     // Actions
     loadAllTables,

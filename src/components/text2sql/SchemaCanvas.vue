@@ -9,12 +9,21 @@ import TableDetailPanel from './TableDetailPanel.vue'
 import CardinalityModal, { type ConnectionInfo, type Cardinality } from './CardinalityModal.vue'
 import { useSchemaCanvasStore } from '@/stores/schemaCanvas'
 import type { Text2SqlTableInfo } from '@/types'
-import { IconTable, IconSearch, IconRefresh, IconTrash, IconZoomIn, IconZoomOut, IconMaximize, IconLink } from '@/components/icons'
+import { IconTable, IconSearch, IconRefresh, IconTrash, IconZoomIn, IconZoomOut, IconMaximize, IconLink, IconFolder, IconChevronRight } from '@/components/icons'
 
 const store = useSchemaCanvasStore()
 const isDragOver = ref(false)
 const searchQuery = ref('')
 const isConnecting = ref(false)
+
+// 스키마 폴더 확장 상태
+const expandedSchemas = ref<Record<string, boolean>>({
+  public: true  // 기본적으로 public 스키마는 펼쳐서 표시
+})
+
+function toggleSchema(schema: string) {
+  expandedSchemas.value[schema] = !expandedSchemas.value[schema]
+}
 
 // Cardinality Modal State
 const isCardinalityModalOpen = ref(false)
@@ -303,27 +312,56 @@ async function handleRefresh() {
         </div>
       </div>
       
-      <!-- Available Tables -->
+      <!-- Available Tables (Schema Tree) -->
       <div class="table-section table-section--scrollable">
         <div class="section-header">
           <span>사용 가능한 테이블</span>
           <span class="section-count">{{ store.tablesNotOnCanvas.length }}</span>
         </div>
-        <div class="table-list">
+        <div class="schema-tree">
+          <!-- 스키마별 폴더 -->
           <div 
-            v-for="table in store.tablesNotOnCanvas" 
-            :key="table.name"
-            class="table-item"
-            draggable="true"
-            @dragstart="(e) => startDragTable(e, table)"
-            @dblclick="store.addTableToCanvas(table)"
+            v-for="schema in store.schemas" 
+            :key="schema"
+            class="schema-folder"
           >
-            <IconTable :size="14" class="table-item__icon" />
-            <div class="table-item__info">
-              <span class="table-item__name">{{ table.name }}</span>
-              <span class="table-item__cols">{{ table.column_count }} cols</span>
+            <!-- 스키마 헤더 (클릭 시 토글) -->
+            <div 
+              class="schema-header"
+              :class="{ 'schema-header--expanded': expandedSchemas[schema] }"
+              @click="toggleSchema(schema)"
+            >
+              <IconChevronRight 
+                :size="12" 
+                class="schema-chevron"
+                :class="{ 'schema-chevron--expanded': expandedSchemas[schema] }"
+              />
+              <IconFolder :size="14" class="schema-icon" />
+              <span class="schema-name">{{ schema }}</span>
+              <span class="schema-count">{{ store.tablesBySchema[schema]?.length || 0 }}</span>
             </div>
-            <div class="table-item__drag-hint">⋮⋮</div>
+            
+            <!-- 스키마 내 테이블 목록 -->
+            <div v-if="expandedSchemas[schema]" class="schema-tables">
+              <div 
+                v-for="table in store.tablesBySchema[schema] || []" 
+                :key="table.name"
+                class="table-item"
+                draggable="true"
+                @dragstart="(e) => startDragTable(e, table)"
+                @dblclick="store.addTableToCanvas(table)"
+              >
+                <IconTable :size="14" class="table-item__icon" />
+                <div class="table-item__info">
+                  <span class="table-item__name">{{ table.name }}</span>
+                  <span class="table-item__cols">{{ table.column_count }} cols</span>
+                  <span v-if="table.description" class="table-item__desc" :title="table.description">
+                    {{ table.description.slice(0, 30) }}{{ table.description.length > 30 ? '...' : '' }}
+                  </span>
+                </div>
+                <div class="table-item__drag-hint">⋮⋮</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -853,6 +891,15 @@ async function handleRefresh() {
   color: var(--color-text-muted);
 }
 
+.table-item__desc {
+  font-size: 0.65rem;
+  color: var(--color-text-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: italic;
+}
+
 .table-item__drag-hint {
   color: var(--color-text-muted);
   opacity: 0;
@@ -862,6 +909,84 @@ async function handleRefresh() {
 
 .table-item:hover .table-item__drag-hint {
   opacity: 1;
+}
+
+// ============================================================================
+// 스키마 트리 스타일
+// ============================================================================
+
+.schema-tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.schema-folder {
+  display: flex;
+  flex-direction: column;
+}
+
+.schema-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+  user-select: none;
+  
+  &:hover {
+    background: var(--color-bg-elevated);
+  }
+  
+  &--expanded {
+    .schema-icon {
+      color: var(--color-accent);
+    }
+  }
+}
+
+.schema-chevron {
+  color: var(--color-text-muted);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  
+  &--expanded {
+    transform: rotate(90deg);
+  }
+}
+
+.schema-icon {
+  color: var(--color-text-light);
+  flex-shrink: 0;
+}
+
+.schema-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  flex: 1;
+}
+
+.schema-count {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.schema-tables {
+  display: flex;
+  flex-direction: column;
+  padding-left: 12px;
+  margin-left: 8px;
+  border-left: 1px solid var(--color-border);
+  
+  .table-item {
+    margin-left: 0;
+    padding-left: 8px;
+  }
 }
 
 .table-item__remove {

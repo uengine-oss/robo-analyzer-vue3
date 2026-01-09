@@ -7,6 +7,8 @@ import DropZone from './DropZone.vue'
 import UploadModal from './UploadModal.vue'
 import UploadTree from './UploadTree.vue'
 import JsonViewer from './JsonViewer.vue'
+import DataConfirmModal from '@/components/common/DataConfirmModal.vue'
+import type { DataAction } from '@/components/common/DataConfirmModal.vue'
 import { buildUploadTreeFromUploadedFiles, uniqueFilesByRelPath } from '@/utils/upload'
 import { roboApi, type DetectTypesResponse } from '@/services/api'
 import type { FileTypeResult } from '@/services/api'
@@ -19,7 +21,9 @@ const {
   uploadedFiles, 
   uploadedDdlFiles,
   isProcessing,
-  projectName
+  projectName,
+  showDataConfirmModal,
+  pendingNodeCount
 } = storeToRefs(projectStore)
 
 // 프로세싱 시작 시 그래프 탭으로 바로 이동 (실시간 그래프 렌더링)
@@ -302,6 +306,19 @@ const activateTab = (tabId: string) => {
   })
 }
 
+// 데이터 확인 모달 핸들러
+const handleDataConfirmClose = () => {
+  projectStore.handleDataConfirmAction('cancel')
+}
+
+const handleDataConfirmAction = async (action: DataAction) => {
+  try {
+    await projectStore.handleDataConfirmAction(action)
+  } catch (error) {
+    alert(`처리 실패: ${error}`)
+  }
+}
+
 </script>
 
 <template>
@@ -447,6 +464,14 @@ const activateTab = (tabId: string) => {
       @cancel="showModal = false"
       @add-files="handleAddFiles"
       @files-updated="handleFilesUpdated"
+    />
+    
+    <!-- 데이터 확인 모달 -->
+    <DataConfirmModal
+      :is-open="showDataConfirmModal"
+      :node-count="pendingNodeCount"
+      @close="handleDataConfirmClose"
+      @confirm="handleDataConfirmAction"
     />
   </div>
 </template>

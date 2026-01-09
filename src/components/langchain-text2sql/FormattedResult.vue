@@ -65,6 +65,13 @@ function getToolIcon(tool: string): string {
   }
   return icons[tool] || '⚡'
 }
+
+// 복잡도 레벨 계산
+function getComplexityLevel(score: number): string {
+  if (score >= 50) return 'high'
+  if (score >= 30) return 'medium'
+  return 'low'
+}
 </script>
 
 <template>
@@ -159,6 +166,53 @@ function getToolIcon(tool: string): string {
           <div class="text-block">
             <pre>{{ item.content }}</pre>
           </div>
+        </template>
+        
+        <!-- OLAP 최적화 제안 블록 -->
+        <template v-else-if="item.type === 'olap'">
+          <div class="olap-block">
+            <div class="olap-header">
+              <span class="olap-icon">📊</span>
+              <span class="olap-title">OLAP 최적화 제안</span>
+              <span class="complexity-badge" :class="getComplexityLevel(item.complexityScore)">
+                복잡도: {{ item.complexityScore }}
+              </span>
+            </div>
+            
+            <div class="olap-content">
+              <p class="olap-description">
+                이 복잡한 쿼리는 Star Schema 기반 OLAP 큐브로 최적화하면 
+                쿼리 성능을 크게 향상시킬 수 있습니다.
+              </p>
+              
+              <div v-if="item.reasons && item.reasons.length > 0" class="complexity-reasons">
+                <div class="reasons-title">감지된 복잡성 요인:</div>
+                <ul>
+                  <li v-for="(reason, rIdx) in item.reasons" :key="rIdx">{{ reason }}</li>
+                </ul>
+              </div>
+              
+              <a 
+                v-if="item.frontendUrl" 
+                :href="item.frontendUrl" 
+                target="_blank" 
+                class="olap-link"
+              >
+                <span class="link-icon">🔗</span>
+                <span>OLAP 최적화 바로가기</span>
+                <span class="external-icon">↗</span>
+              </a>
+            </div>
+          </div>
+        </template>
+        
+        <!-- 링크 블록 -->
+        <template v-else-if="item.type === 'link'">
+          <a :href="item.url" target="_blank" class="standalone-link">
+            <span class="link-icon">🔗</span>
+            <span>{{ item.text }}</span>
+            <span class="external-icon">↗</span>
+          </a>
         </template>
       </div>
       
@@ -444,6 +498,146 @@ function getToolIcon(tool: string): string {
     word-break: break-word;
     font-size: 12px;
     line-height: 1.6;
+  }
+}
+
+// OLAP 최적화 제안 블록
+.olap-block {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 12px;
+  overflow: hidden;
+  
+  .olap-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(139, 92, 246, 0.1);
+    border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+    
+    .olap-icon {
+      font-size: 20px;
+    }
+    
+    .olap-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: #a78bfa;
+    }
+    
+    .complexity-badge {
+      margin-left: auto;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      
+      &.high {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+      }
+      
+      &.medium {
+        background: rgba(251, 191, 36, 0.2);
+        color: #fbbf24;
+      }
+      
+      &.low {
+        background: rgba(52, 211, 153, 0.2);
+        color: #34d399;
+      }
+    }
+  }
+  
+  .olap-content {
+    padding: 16px;
+    
+    .olap-description {
+      margin: 0 0 12px;
+      color: var(--color-text);
+      line-height: 1.6;
+      font-size: 13px;
+    }
+    
+    .complexity-reasons {
+      margin-bottom: 16px;
+      
+      .reasons-title {
+        font-weight: 500;
+        margin-bottom: 8px;
+        color: var(--color-text-muted);
+        font-size: 12px;
+      }
+      
+      ul {
+        margin: 0;
+        padding-left: 20px;
+        
+        li {
+          margin-bottom: 4px;
+          font-size: 12px;
+          color: var(--color-text);
+        }
+      }
+    }
+    
+    .olap-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      font-weight: 500;
+      font-size: 13px;
+      transition: all 0.2s ease;
+      
+      &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+      }
+      
+      .link-icon {
+        font-size: 14px;
+      }
+      
+      .external-icon {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+    }
+  }
+}
+
+// 독립 링크
+.standalone-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  }
+  
+  .link-icon {
+    font-size: 14px;
+  }
+  
+  .external-icon {
+    font-size: 12px;
+    opacity: 0.8;
   }
 }
 </style>

@@ -5,6 +5,7 @@ import LineageTab from '@/components/lineage/LineageTab.vue'
 import GlossaryTab from '@/components/glossary/GlossaryTab.vue'
 import Text2SqlTab from '@/components/text2sql/Text2SqlTab.vue'
 import LangChainTab from '@/components/langchain-text2sql/LangChainTab.vue'
+import { OlapTab } from '@/components/olap'
 import { DataQuality, IncidentManager, AlertsPage } from '@/components/observability'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
@@ -20,6 +21,7 @@ const { activeTab } = storeToRefs(sessionStore)
     <GraphTab v-else-if="activeTab === 'graph'" />
     <LineageTab v-else-if="activeTab === 'lineage'" />
     <GlossaryTab v-else-if="activeTab === 'glossary'" />
+    <OlapTab v-else-if="activeTab === 'olap'" />
     <Text2SqlTab v-else-if="activeTab === 'text2sql'" />
     <LangChainTab v-else-if="activeTab === 'langchain'" />
     

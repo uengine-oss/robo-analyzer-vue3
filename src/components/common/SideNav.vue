@@ -12,6 +12,7 @@ import {
   IconMessageSquare, 
   IconLineage,
   IconBook,
+  IconBarChart,
   IconObservability,
   IconDataQuality,
   IconIncident,
@@ -42,10 +43,10 @@ interface NavGroup {
 const navItems: NavItem[] = [
   { id: 'upload', label: '소스', icon: IconFolder },
   { id: 'graph', label: '메타데이터', icon: IconDatabase },
+  { id: 'langchain', label: 'LangChain 질의', icon: IconMessageSquare },
   { id: 'lineage', label: '데이터 리니지', icon: IconLineage },
   { id: 'glossary', label: '용어 관리', icon: IconBook },
-  { id: 'text2sql', label: '자연어 질의', icon: IconMessageSquare },
-  { id: 'langchain', label: 'LangChain 질의', icon: IconMessageSquare }
+  { id: 'olap', label: 'OLAP 분석', icon: IconBarChart }
 ]
 
 const observabilityGroup: NavGroup = {

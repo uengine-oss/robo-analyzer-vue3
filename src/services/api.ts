@@ -24,8 +24,11 @@ import { getNormalizedUploadPath } from '@/utils/upload'
 // 상수 정의
 // ============================================================================
 
-const ANTLR_BASE_URL = '/antlr'
-const ROBO_BASE_URL = '/robo'
+// API Gateway URL - 모든 마이크로서비스 요청의 단일 진입점
+const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? 'http://localhost:9000'
+
+const ANTLR_BASE_URL = `${API_GATEWAY_URL}/antlr`
+const ROBO_BASE_URL = `${API_GATEWAY_URL}/robo`
 
 // ============================================================================
 // 타입 정의
@@ -457,7 +460,7 @@ export const roboApi = {
 // Ingest API
 // ============================================================================
 
-const INGEST_BASE_URL = '/text2sql'
+const INGEST_BASE_URL = `${API_GATEWAY_URL}/text2sql`
 
 export interface IngestRequest {
   db_name?: string
@@ -654,7 +657,7 @@ export const roboSchemaApi = {
 // Text2SQL API (ReAct)
 // ============================================================================
 
-const TEXT2SQL_BASE_URL = '/text2sql'
+const TEXT2SQL_BASE_URL = `${API_GATEWAY_URL}/text2sql`
 
 export const text2sqlApi = {
   /**
