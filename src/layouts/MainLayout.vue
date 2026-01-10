@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import TopToolbar from '@/components/common/TopToolbar.vue'
 import SideNav from '@/components/common/SideNav.vue'
+import FloatingProgressPanel from '@/components/common/FloatingProgressPanel.vue'
 import { RouterView } from 'vue-router'
 import { useProjectStore } from '@/stores/project'
 
@@ -32,6 +33,9 @@ onMounted(async () => {
         <RouterView />
       </main>
     </div>
+    
+    <!-- 플로팅 진행 상태 패널 (전역) -->
+    <FloatingProgressPanel />
   </div>
 </template>
 

@@ -15,6 +15,163 @@ const etlResult = ref<any>(null)
 const showETLResult = ref(false)
 const airflowUrl = ref<string | null>(null)
 
+// Visual Modeler Modal
+const showCubeEditor = ref(false)
+const cubeEditLoading = ref(false)
+const cubeEditError = ref<string | null>(null)
+const cubeEditSuccess = ref<string | null>(null)
+
+// Visual Modeler State (for current cube)
+const editCubeName = ref('')
+const editFactTable = ref('')
+const editDimensions = ref<any[]>([])
+const editMeasures = ref<any[]>([])
+
+// Load current cube for editing
+async function openCubeEditor() {
+  if (!store.currentCube) return
+  
+  cubeEditLoading.value = true
+  cubeEditError.value = null
+  
+  try {
+    // Load cube metadata
+    const metadata = store.cubeMetadata
+    if (metadata) {
+      editCubeName.value = store.currentCube
+      editFactTable.value = metadata.fact_table || ''
+      editDimensions.value = (metadata.dimensions || []).map((d: any, i: number) => ({
+        id: Date.now() + i,
+        name: d.name || '',
+        table: d.table || '',
+        foreignKey: d.foreign_key || '',
+        levels: (d.levels || []).map((l: any, j: number) => ({
+          id: Date.now() + i * 100 + j,
+          name: l.name || '',
+          column: l.column || ''
+        }))
+      }))
+      editMeasures.value = (metadata.measures || []).map((m: any, i: number) => ({
+        id: Date.now() + i,
+        name: m.name || '',
+        column: m.column || '',
+        aggregator: m.aggregator || 'sum'
+      }))
+    } else {
+      // Empty template if no metadata
+      editCubeName.value = store.currentCube
+      editFactTable.value = ''
+      editDimensions.value = []
+      editMeasures.value = []
+    }
+    
+    showCubeEditor.value = true
+  } catch (e: any) {
+    cubeEditError.value = e.message
+  } finally {
+    cubeEditLoading.value = false
+  }
+}
+
+// Visual Modeler Functions
+function addEditDimension() {
+  editDimensions.value.push({
+    id: Date.now(),
+    name: '',
+    table: '',
+    foreignKey: '',
+    levels: [{ id: Date.now(), name: '', column: '' }]
+  })
+}
+
+function removeEditDimension(index: number) {
+  editDimensions.value.splice(index, 1)
+}
+
+function addEditLevel(dimIndex: number) {
+  editDimensions.value[dimIndex].levels.push({
+    id: Date.now(),
+    name: '',
+    column: ''
+  })
+}
+
+function removeEditLevel(dimIndex: number, levelIndex: number) {
+  editDimensions.value[dimIndex].levels.splice(levelIndex, 1)
+}
+
+function addEditMeasure() {
+  editMeasures.value.push({
+    id: Date.now(),
+    name: '',
+    column: '',
+    aggregator: 'sum'
+  })
+}
+
+function removeEditMeasure(index: number) {
+  editMeasures.value.splice(index, 1)
+}
+
+// Generate Mondrian XML
+function generateEditXML(): string {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<Schema name="${editCubeName.value}Schema">\n`
+  xml += `  <Cube name="${editCubeName.value}">\n`
+  xml += `    <Table name="${editFactTable.value.split('.').pop()}" schema="dw"/>\n`
+  
+  editDimensions.value.forEach(dim => {
+    if (dim.name && dim.table) {
+      xml += `    <Dimension name="${dim.name}" foreignKey="${dim.foreignKey || dim.name.toLowerCase() + '_id'}">\n`
+      xml += `      <Hierarchy hasAll="true" primaryKey="id">\n`
+      xml += `        <Table name="${dim.table.split('.').pop()}" schema="dw"/>\n`
+      dim.levels?.forEach((level: any) => {
+        if (level.name && level.column) {
+          xml += `        <Level name="${level.name}" column="${level.column}"/>\n`
+        }
+      })
+      xml += `      </Hierarchy>\n`
+      xml += `    </Dimension>\n`
+    }
+  })
+  
+  editMeasures.value.forEach(m => {
+    if (m.name && m.column) {
+      xml += `    <Measure name="${m.name}" column="${m.column}" aggregator="${m.aggregator}"/>\n`
+    }
+  })
+  
+  xml += `  </Cube>\n</Schema>`
+  return xml
+}
+
+// Save cube changes
+async function saveCubeChanges() {
+  cubeEditLoading.value = true
+  cubeEditError.value = null
+  cubeEditSuccess.value = null
+  
+  try {
+    const xml = generateEditXML()
+    await olapApi.uploadSchemaText(xml)
+    cubeEditSuccess.value = '큐브가 업데이트되었습니다!'
+    
+    // Reload cubes and metadata
+    await store.loadCubes()
+    if (store.currentCube) {
+      await store.selectCube(store.currentCube)
+    }
+    
+    setTimeout(() => {
+      showCubeEditor.value = false
+      cubeEditSuccess.value = null
+    }, 1500)
+  } catch (e: any) {
+    cubeEditError.value = e.message
+  } finally {
+    cubeEditLoading.value = false
+  }
+}
+
 // Drop zone drag states
 const rowsOver = ref(false)
 const colsOver = ref(false)
@@ -139,6 +296,14 @@ function copySQL() {
       <div class="config-header">
         <h3>피벗 설정</h3>
         <div class="config-actions">
+          <button 
+            class="btn btn-cube-edit" 
+            @click="openCubeEditor" 
+            :disabled="!store.currentCube"
+            title="큐브 구조 편집"
+          >
+            ✏️ 큐브 편집
+          </button>
           <button 
             class="btn btn-etl" 
             @click="executeETL" 
@@ -363,6 +528,111 @@ function copySQL() {
         {{ store.error }}
       </div>
     </main>
+    
+    <!-- Cube Editor Modal (Visual Modeler) -->
+    <div v-if="showCubeEditor" class="modal-overlay" @click.self="showCubeEditor = false">
+      <div class="cube-editor-modal">
+        <header class="modal-header">
+          <h2>✏️ 큐브 편집: {{ editCubeName }}</h2>
+          <button class="btn-close" @click="showCubeEditor = false">×</button>
+        </header>
+        
+        <div class="modal-body">
+          <!-- Messages -->
+          <div v-if="cubeEditError" class="message error">{{ cubeEditError }}</div>
+          <div v-if="cubeEditSuccess" class="message success">{{ cubeEditSuccess }}</div>
+          
+          <div class="editor-grid">
+            <!-- Left: Form -->
+            <div class="editor-form">
+              <!-- Basic Info -->
+              <div class="form-section">
+                <h4>📦 기본 정보</h4>
+                <div class="form-group">
+                  <label>큐브 이름</label>
+                  <input type="text" v-model="editCubeName" class="form-input" disabled />
+                </div>
+                <div class="form-group">
+                  <label>팩트 테이블</label>
+                  <input type="text" v-model="editFactTable" placeholder="dw.fact_xxx" class="form-input" />
+                </div>
+              </div>
+              
+              <!-- Dimensions -->
+              <div class="form-section">
+                <div class="section-header">
+                  <h4>📐 디멘전</h4>
+                  <button class="btn btn-sm btn-add" @click="addEditDimension">+ 추가</button>
+                </div>
+                
+                <div v-for="(dim, dimIndex) in editDimensions" :key="dim.id" class="dimension-item">
+                  <div class="dim-row">
+                    <input v-model="dim.name" placeholder="디멘전 이름" class="form-input" />
+                    <button class="btn-remove" @click="removeEditDimension(dimIndex)">×</button>
+                  </div>
+                  <div class="dim-details">
+                    <input v-model="dim.table" placeholder="테이블 (dw.dim_xxx)" class="form-input" />
+                    <input v-model="dim.foreignKey" placeholder="FK (xxx_id)" class="form-input" />
+                  </div>
+                  <div class="levels-section">
+                    <span class="levels-label">레벨:</span>
+                    <div v-for="(level, levelIndex) in dim.levels" :key="level.id" class="level-item">
+                      <input v-model="level.name" placeholder="레벨명" class="form-input level-input" />
+                      <input v-model="level.column" placeholder="컬럼" class="form-input level-input" />
+                      <button class="btn-remove-level" @click="removeEditLevel(dimIndex, levelIndex)">×</button>
+                    </div>
+                    <button class="btn-add-level" @click="addEditLevel(dimIndex)">+ 레벨</button>
+                  </div>
+                </div>
+                
+                <div v-if="editDimensions.length === 0" class="empty-hint">
+                  디멘전이 없습니다
+                </div>
+              </div>
+              
+              <!-- Measures -->
+              <div class="form-section">
+                <div class="section-header">
+                  <h4>📊 측정값</h4>
+                  <button class="btn btn-sm btn-add" @click="addEditMeasure">+ 추가</button>
+                </div>
+                
+                <div v-for="(measure, measureIndex) in editMeasures" :key="measure.id" class="measure-item">
+                  <input v-model="measure.name" placeholder="이름" class="form-input" />
+                  <input v-model="measure.column" placeholder="컬럼" class="form-input" />
+                  <select v-model="measure.aggregator" class="form-select">
+                    <option value="sum">SUM</option>
+                    <option value="count">COUNT</option>
+                    <option value="avg">AVG</option>
+                    <option value="min">MIN</option>
+                    <option value="max">MAX</option>
+                  </select>
+                  <button class="btn-remove" @click="removeEditMeasure(measureIndex)">×</button>
+                </div>
+                
+                <div v-if="editMeasures.length === 0" class="empty-hint">
+                  측정값이 없습니다
+                </div>
+              </div>
+            </div>
+            
+            <!-- Right: XML Preview -->
+            <div class="editor-preview">
+              <h4>XML 미리보기</h4>
+              <pre class="xml-preview">{{ generateEditXML() }}</pre>
+            </div>
+          </div>
+        </div>
+        
+        <footer class="modal-footer">
+          <button class="btn btn-secondary" @click="showCubeEditor = false">취소</button>
+          <button class="btn btn-primary" @click="saveCubeChanges" :disabled="cubeEditLoading">
+            <span v-if="cubeEditLoading" class="spinner-sm"></span>
+            <span v-else>💾 저장</span>
+          </button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -748,6 +1018,340 @@ function copySQL() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Cube Editor Button */
+.btn-cube-edit {
+  background: linear-gradient(135deg, #20c997, #12b886);
+  color: white;
+  
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(32, 201, 151, 0.4);
+  }
+}
+
+/* Cube Editor Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.cube-editor-modal {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  width: 90vw;
+  max-width: 1200px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.4);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-border);
+  
+  h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  
+  .btn-close {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    
+    &:hover {
+      color: var(--color-text);
+    }
+  }
+}
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  
+  .message {
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    
+    &.error {
+      background: rgba(250, 82, 82, 0.1);
+      border: 1px solid rgba(250, 82, 82, 0.3);
+      color: #fa5252;
+    }
+    
+    &.success {
+      background: rgba(64, 192, 87, 0.1);
+      border: 1px solid rgba(64, 192, 87, 0.3);
+      color: #40c057;
+    }
+  }
+}
+
+.editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-section {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px;
+  
+  h4 {
+    margin: 0 0 12px;
+    font-size: 0.875rem;
+    color: var(--color-text);
+  }
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  
+  h4 {
+    margin: 0;
+  }
+}
+
+.form-group {
+  margin-bottom: 12px;
+  
+  label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 4px;
+  }
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+  
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+}
+
+.form-select {
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+}
+
+.btn-add {
+  background: var(--color-accent);
+  color: white;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  
+  &:hover {
+    opacity: 0.9;
+  }
+}
+
+.dimension-item, .measure-item {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.dim-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  
+  .form-input {
+    flex: 1;
+  }
+}
+
+.dim-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.levels-section {
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border);
+  
+  .levels-label {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+  }
+}
+
+.level-item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 6px 0;
+  
+  .level-input {
+    width: 120px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+}
+
+.btn-add-level {
+  background: transparent;
+  color: var(--color-accent);
+  border: 1px dashed var(--color-accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  
+  &:hover {
+    background: rgba(34, 139, 230, 0.1);
+  }
+}
+
+.btn-remove {
+  background: transparent;
+  border: none;
+  color: #fa5252;
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  
+  &:hover {
+    background: rgba(250, 82, 82, 0.1);
+    border-radius: 4px;
+  }
+}
+
+.btn-remove-level {
+  background: transparent;
+  border: none;
+  color: #fa5252;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 4px;
+  
+  &:hover {
+    background: rgba(250, 82, 82, 0.1);
+    border-radius: 4px;
+  }
+}
+
+.measure-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  
+  .form-input {
+    flex: 1;
+  }
+  
+  .form-select {
+    width: 100px;
+  }
+}
+
+.empty-hint {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  text-align: center;
+  padding: 16px;
+  font-style: italic;
+}
+
+.editor-preview {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  
+  h4 {
+    margin: 0 0 12px;
+    font-size: 0.875rem;
+  }
+  
+  .xml-preview {
+    flex: 1;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    color: var(--color-text-light);
+    max-height: 400px;
+  }
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-border);
 }
 </style>
 

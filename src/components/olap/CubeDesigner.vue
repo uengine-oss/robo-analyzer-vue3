@@ -3,7 +3,7 @@
  * CubeDesigner.vue
  * OLAP 큐브 설계 - AI 기반 스타 스키마 생성 및 ETL 전략
  */
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useOlapStore } from '@/stores/olap'
 import { useSessionStore } from '@/stores/session'
 import * as olapApi from '@/services/olap-api'
@@ -21,11 +21,106 @@ const etlDescription = ref('')
 const aiSuggestion = ref<any>(null)
 const dwSchema = ref('dw')
 
+// Tab State
+const activeTab = ref<'ai' | 'visual'>('ai')
+
 // Visual Modeler State
 const cubeName = ref('')
 const factTable = ref('')
 const dimensions = ref<any[]>([])
 const measures = ref<any[]>([])
+const previewMode = ref<'diagram' | 'xml'>('diagram')
+
+// =====================================================================
+// Visual Modeler Functions
+// =====================================================================
+
+// Add new dimension
+function addDimension() {
+  dimensions.value.push({
+    id: Date.now(),
+    name: '',
+    table: '',
+    foreignKey: '',
+    levels: [{ id: Date.now(), name: '', column: '' }]
+  })
+}
+
+// Remove dimension
+function removeDimension(index: number) {
+  dimensions.value.splice(index, 1)
+}
+
+// Add level to dimension
+function addLevel(dimIndex: number) {
+  dimensions.value[dimIndex].levels.push({
+    id: Date.now(),
+    name: '',
+    column: ''
+  })
+}
+
+// Remove level from dimension
+function removeLevel(dimIndex: number, levelIndex: number) {
+  dimensions.value[dimIndex].levels.splice(levelIndex, 1)
+}
+
+// Add new measure
+function addMeasure() {
+  measures.value.push({
+    id: Date.now(),
+    name: '',
+    column: '',
+    aggregator: 'sum'
+  })
+}
+
+// Remove measure
+function removeMeasure(index: number) {
+  measures.value.splice(index, 1)
+}
+
+// Load sample template
+function loadSampleTemplate() {
+  cubeName.value = 'SalesCube'
+  factTable.value = 'dw.fact_sales'
+  dimensions.value = [
+    {
+      id: 1,
+      name: 'Time',
+      table: 'dw.dim_time',
+      foreignKey: 'time_id',
+      levels: [
+        { id: 1, name: 'Year', column: 'year' },
+        { id: 2, name: 'Quarter', column: 'quarter' },
+        { id: 3, name: 'Month', column: 'month' }
+      ]
+    },
+    {
+      id: 2,
+      name: 'Product',
+      table: 'dw.dim_product',
+      foreignKey: 'product_id',
+      levels: [
+        { id: 1, name: 'Category', column: 'category' },
+        { id: 2, name: 'ProductName', column: 'product_name' }
+      ]
+    }
+  ]
+  measures.value = [
+    { id: 1, name: 'SalesAmount', column: 'sales_amount', aggregator: 'sum' },
+    { id: 2, name: 'Quantity', column: 'quantity', aggregator: 'sum' }
+  ]
+}
+
+// Clear form
+function clearForm() {
+  cubeName.value = ''
+  factTable.value = ''
+  dimensions.value = []
+  measures.value = []
+  aiSuggestion.value = null
+}
 
 // Diagram refs
 const starSchemaDiagram = ref<HTMLDivElement | null>(null)
@@ -87,6 +182,77 @@ ${transferData.sql}
   }
 })
 
+// Watch for Visual Modeler changes to re-render diagram
+watch(
+  [cubeName, factTable, dimensions, measures, activeTab, previewMode],
+  async () => {
+    if (activeTab.value === 'visual' && previewMode.value === 'diagram') {
+      await nextTick()
+      await renderVisualModelerDiagram()
+    }
+  },
+  { deep: true }
+)
+
+// Render Visual Modeler diagram
+async function renderVisualModelerDiagram() {
+  if (!starSchemaDiagram.value) return
+  if (!cubeName.value && dimensions.value.length === 0) return
+  
+  try {
+    const diagram = generateVisualModelerMermaid()
+    if (!diagram) return
+    
+    starSchemaDiagram.value.innerHTML = ''
+    const { svg } = await mermaid.render(`vm-diagram-${Date.now()}`, diagram)
+    starSchemaDiagram.value.innerHTML = svg
+  } catch (e) {
+    console.error('Mermaid render error:', e)
+  }
+}
+
+// Generate Mermaid diagram for Visual Modeler
+function generateVisualModelerMermaid(): string {
+  if (!cubeName.value || !factTable.value) return ''
+  
+  const sanitize = (name: string) => (name || 'unknown').replace(/[^a-zA-Z0-9_]/g, '_')
+  const safeFact = sanitize(factTable.value)
+  
+  let diagram = `erDiagram\n`
+  
+  // Fact table
+  diagram += `    ${safeFact} {\n`
+  diagram += `        int id PK\n`
+  dimensions.value.forEach(dim => {
+    if (dim.foreignKey) {
+      diagram += `        int ${sanitize(dim.foreignKey)} FK\n`
+    }
+  })
+  measures.value.forEach(m => {
+    if (m.column) {
+      diagram += `        decimal ${sanitize(m.column)}\n`
+    }
+  })
+  diagram += `    }\n\n`
+  
+  // Dimension tables
+  dimensions.value.forEach(dim => {
+    if (!dim.name) return
+    const safeDim = sanitize(dim.table || dim.name)
+    diagram += `    ${safeDim} {\n`
+    diagram += `        int id PK\n`
+    dim.levels?.forEach((level: any) => {
+      if (level.column) {
+        diagram += `        varchar ${sanitize(level.column)}\n`
+      }
+    })
+    diagram += `    }\n`
+    diagram += `    ${safeDim} ||--o{ ${safeFact} : has\n`
+  })
+  
+  return diagram
+}
+
 // Fetch catalog from Neo4j
 async function fetchCatalog() {
   try {
@@ -128,38 +294,145 @@ async function getAISuggestion() {
 
 // Populate from AI suggestion
 async function populateFromAISuggestion(suggestion: any) {
-  if (!cubeName.value) {
-    cubeName.value = etlDescription.value.split(/\s+/).slice(0, 2).join('').replace(/[^a-zA-Z0-9가-힣]/g, '') || 'AnalyticsCube'
+  // Use suggested cube name - LLM now returns English names
+  if (suggestion.cube_name) {
+    // cube_name should already be in English from LLM
+    cubeName.value = suggestion.cube_name.replace(/[^a-zA-Z0-9_]/g, '')
+  } else if (!cubeName.value) {
+    cubeName.value = 'analytics_cube'
   }
   
   const factSources = suggestion.fact_sources || []
-  factTable.value = `${dwSchema.value}.fact_${cubeName.value.toLowerCase().replace(/[^a-z0-9]/g, '_')}`
+  // Use fact_table_name from LLM if provided, otherwise generate from cube name
+  if (suggestion.fact_table_name) {
+    factTable.value = `${dwSchema.value}.${suggestion.fact_table_name}`
+  } else {
+    const sanitizedCubeName = cubeName.value.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+    factTable.value = `${dwSchema.value}.fact_${sanitizedCubeName || 'data'}`
+  }
   
   dimensions.value = []
-  const dimSources = suggestion.dimension_sources || {}
   
-  for (const [dimName, sources] of Object.entries(dimSources)) {
-    if (Array.isArray(sources) && sources.length > 0) {
-      const sourceTable = sources[0] as string
-      const tableInfo = catalog.value.tables.find((t: any) => t.name === sourceTable)
+  // New format: dimensions array with detailed ETL strategy
+  if (suggestion.dimensions && Array.isArray(suggestion.dimensions)) {
+    for (const dim of suggestion.dimensions) {
+      const tableInfo = dim.source_table ? 
+        catalog.value.tables.find((t: any) => t.name === dim.source_table) : null
       
+      // Build levels from columns or column_mappings
+      let levels = []
+      if (dim.columns && Array.isArray(dim.columns)) {
+        levels = dim.columns.filter((col: any) => col.name !== 'id').map((col: any) => ({
+          name: col.name,
+          column: col.name
+        }))
+      } else if (dim.target_columns && Array.isArray(dim.target_columns)) {
+        levels = dim.target_columns.filter((col: string) => col !== 'id').map((col: string) => ({
+          name: col,
+          column: col
+        }))
+      } else if (tableInfo?.columns) {
+        levels = tableInfo.columns.slice(0, 3).map((col: any) => ({
+          name: col.name,
+          column: col.name
+        }))
+      }
+      
+      if (levels.length === 0) {
+        levels = [{ name: 'name', column: 'name' }]
+      }
+      
+      // Dimension name should already be English from LLM (e.g., dim_site, dim_time)
+      const dimName = dim.name.replace(/[^a-zA-Z0-9_]/g, '') || 'dim_unknown'
       dimensions.value.push({
         id: Date.now() + Math.random(),
         name: dimName,
+        nameKorean: dim.name_korean || dim.description_korean || '',
         table: `${dwSchema.value}.${dimName}`,
         foreignKey: `${dimName.toLowerCase()}_id`,
-        levels: tableInfo?.columns?.slice(0, 2).map((col: any) => ({
-          name: col.name,
-          column: col.name
-        })) || [{ name: 'id', column: 'id' }]
+        levels: levels,
+        // Store ETL strategy info for later use
+        etlStrategy: dim.generation_strategy || 'etl',
+        sourceTable: dim.source_table || null
       })
+    }
+  } 
+  // Legacy format: dimension_sources object
+  else {
+    const dimSources = suggestion.dimension_sources || {}
+    
+    for (const [dimName, sources] of Object.entries(dimSources)) {
+      if (Array.isArray(sources) && sources.length > 0) {
+        const sourceTable = sources[0] as string
+        const tableInfo = catalog.value.tables.find((t: any) => t.name === sourceTable)
+        
+        // Ensure dimension name is in English
+        const cleanDimName = dimName.replace(/[^a-zA-Z0-9_]/g, '') || 'dim_unknown'
+        dimensions.value.push({
+          id: Date.now() + Math.random(),
+          name: cleanDimName,
+          table: `${dwSchema.value}.${cleanDimName}`,
+          foreignKey: `${cleanDimName.toLowerCase()}_id`,
+          levels: tableInfo?.columns?.slice(0, 2).map((col: any) => ({
+            name: col.name,
+            column: col.name
+          })) || [{ name: 'id', column: 'id' }],
+          etlStrategy: 'etl',
+          sourceTable: sourceTable
+        })
+      }
     }
   }
   
-  measures.value = [
-    { id: Date.now(), name: 'Count', column: 'id', aggregator: 'count' },
-    { id: Date.now() + 1, name: 'Total', column: 'amount', aggregator: 'sum' }
-  ]
+  // Extract measures - prefer new format with measures array from LLM
+  measures.value = []
+  
+  if (suggestion.measures && Array.isArray(suggestion.measures)) {
+    // New format: LLM provides measures array with English names
+    suggestion.measures.forEach((m: any, i: number) => {
+      measures.value.push({
+        id: Date.now() + i,
+        name: m.name || `measure_${i}`,
+        nameKorean: m.name_korean || m.description || '',
+        column: m.column || m.name || `measure_${i}`,
+        aggregator: (m.aggregator || 'sum').toLowerCase()
+      })
+    })
+  } else {
+    // Fallback: Extract from fact_mappings or suggested_mappings
+    const mappings = suggestion.fact_mappings || suggestion.suggested_mappings || []
+    const measureMappings = mappings.filter((m: any) => 
+      m.transformation && (m.transformation.includes('SUM') || m.transformation.includes('AVG') || 
+       m.transformation.includes('COUNT') || m.transformation.includes('MAX') || m.transformation.includes('MIN'))
+    )
+    
+    if (measureMappings.length > 0) {
+      measureMappings.forEach((m: any, i: number) => {
+        const colName = m.target?.split('.')?.pop() || m.source?.split('.')?.pop() || `measure_${i}`
+        // Convert to English column name
+        const cleanColName = colName.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_')
+        let aggregator = 'sum'
+        if (m.transformation.includes('AVG')) aggregator = 'avg'
+        else if (m.transformation.includes('COUNT')) aggregator = 'count'
+        else if (m.transformation.includes('MAX')) aggregator = 'max'
+        else if (m.transformation.includes('MIN')) aggregator = 'min'
+        
+        measures.value.push({
+          id: Date.now() + i,
+          name: cleanColName,
+          nameKorean: m.description || '',
+          column: cleanColName,
+          aggregator: aggregator
+        })
+      })
+    } else {
+      // Default measures
+      measures.value = [
+        { id: Date.now(), name: 'record_count', nameKorean: '레코드 수', column: 'id', aggregator: 'count' },
+        { id: Date.now() + 1, name: 'total_amount', nameKorean: '총 금액', column: 'amount', aggregator: 'sum' }
+      ]
+    }
+  }
 }
 
 // Sanitize name for Mermaid
@@ -417,7 +690,7 @@ function openAirflowUI() {
   }
 }
 
-// Upload cube and deploy to Airflow
+// Upload cube and deploy to Airflow with full provisioning
 async function uploadCubeAndDeploy() {
   if (!cubeName.value || !factTable.value) {
     error.value = '큐브 이름과 팩트 테이블을 설정해주세요'
@@ -427,28 +700,59 @@ async function uploadCubeAndDeploy() {
   loading.value = true
   error.value = null
   airflowError.value = null
+  success.value = null
   
   try {
-    // 1. Upload cube schema
+    console.log('=== Starting full cube provisioning ===')
+    
+    // 1. Create DW schema and tables
+    console.log('Step 1: Creating DW schema...')
+    await olapApi.createDWSchema()
+    
+    // 2. Generate and execute DDL for dimension and fact tables
+    console.log('Step 2: Provisioning tables...')
+    const provisionResult = await olapApi.provisionCube(
+      cubeName.value,
+      aiSuggestion.value,
+      dimensions.value,
+      measures.value,
+      factTable.value
+    )
+    console.log('Tables provisioned:', provisionResult)
+    
+    // 3. Upload cube schema (Mondrian XML)
+    console.log('Step 3: Uploading cube schema...')
     const xml = generateMondrianXML()
-    console.log('Uploading cube schema...')
     await store.uploadSchemaText(xml)
     
-    // 2. Create ETL config
+    // 4. Create ETL config
+    console.log('Step 4: Creating ETL config...')
     const etlConfig = buildETLConfig()
-    console.log('Creating ETL config:', etlConfig)
     await olapApi.createETLConfig(etlConfig)
     
-    // 3. Deploy to Airflow
-    console.log('Deploying to Airflow...')
+    // 5. Deploy to Airflow
+    console.log('Step 5: Deploying to Airflow...')
     const result = await olapApi.deployETLPipeline(cubeName.value)
     airflowDag.value = result
     
-    success.value = '큐브와 ETL 파이프라인이 Airflow에 배포되었습니다!'
-    console.log('Deployment complete:', result)
+    // 6. Trigger initial ETL run (optional - run Airflow DAG)
+    console.log('Step 6: Triggering initial ETL...')
+    try {
+      await olapApi.runETLPipeline(cubeName.value)
+      console.log('Initial ETL triggered via Airflow')
+    } catch (airflowErr: any) {
+      console.warn('Airflow ETL trigger failed, data may need manual sync:', airflowErr.message)
+    }
+    
+    success.value = `✅ 큐브 "${cubeName.value}" 프로비저닝 완료!\n` +
+      `• DW 테이블 생성됨\n` +
+      `• ETL 파이프라인 배포됨\n` +
+      `• Airflow DAG: ${result.dag_id || 'N/A'}`
+    
+    console.log('=== Cube provisioning complete ===')
   } catch (e: any) {
-    console.error('Upload failed:', e)
-    error.value = e.message
+    console.error('Provisioning failed:', e)
+    error.value = `프로비저닝 실패: ${e.message}`
   } finally {
     loading.value = false
   }
@@ -507,8 +811,35 @@ function generateMondrianXML(): string {
     
     <!-- Main Content -->
     <main class="design-content">
+      <!-- Tab Navigation -->
+      <div class="modeler-tabs">
+        <button 
+          :class="['tab-btn', { active: activeTab === 'ai' }]"
+          @click="activeTab = 'ai'"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+            <circle cx="7.5" cy="14.5" r="1.5"/>
+            <circle cx="16.5" cy="14.5" r="1.5"/>
+          </svg>
+          AI 설계
+        </button>
+        <button 
+          :class="['tab-btn', { active: activeTab === 'visual' }]"
+          @click="activeTab = 'visual'"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          Visual Modeler
+        </button>
+      </div>
+
       <!-- Text2SQL Transfer Banner -->
-      <div v-if="transferredFromText2Sql" class="transfer-banner">
+      <div v-if="transferredFromText2Sql && activeTab === 'ai'" class="transfer-banner">
         <div class="banner-icon">📊</div>
         <div class="banner-content">
           <strong>Text2SQL 히스토리에서 가져온 쿼리</strong>
@@ -517,6 +848,10 @@ function generateMondrianXML(): string {
         <button class="banner-close" @click="transferredFromText2Sql = false">×</button>
       </div>
 
+      <!-- =====================================================================
+           AI Designer Tab
+           ===================================================================== -->
+      <template v-if="activeTab === 'ai'">
       <!-- AI Input -->
       <section class="ai-section">
         <h3>🤖 AI 큐브 설계</h3>
@@ -543,6 +878,51 @@ function generateMondrianXML(): string {
       
       <!-- Results -->
       <section v-if="aiSuggestion" class="results-section">
+        <!-- Query Generalization Section -->
+        <div v-if="aiSuggestion.generalization" class="generalization-section">
+          <h4>🔍 쿼리 일반화 분석</h4>
+          <div class="generalization-content">
+            <div class="gen-row">
+              <div class="gen-item">
+                <span class="gen-label">원본 쿼리</span>
+                <span class="gen-value original">{{ aiSuggestion.generalization.original_query }}</span>
+              </div>
+              <div class="gen-arrow">→</div>
+              <div class="gen-item">
+                <span class="gen-label">일반화된 분석</span>
+                <span class="gen-value generalized">{{ aiSuggestion.generalization.generalized_query }}</span>
+              </div>
+            </div>
+            
+            <!-- Pivot Capabilities -->
+            <div v-if="aiSuggestion.generalization.pivot_capabilities || aiSuggestion.generalization.pivot_examples" class="pivot-capabilities">
+              <span class="gen-label">📊 이 큐브로 가능한 분석:</span>
+              <div class="pivot-chips">
+                <span v-for="(cap, i) in (aiSuggestion.generalization.pivot_capabilities || aiSuggestion.generalization.pivot_examples)" :key="i" class="pivot-chip">
+                  {{ cap }}
+                </span>
+              </div>
+            </div>
+            
+            <!-- Identified Dimensions -->
+            <div v-if="aiSuggestion.generalization.identified_dimensions" class="identified-dims">
+              <span class="gen-label">📐 식별된 피벗 차원:</span>
+              <div class="dim-chips">
+                <div v-for="dim in aiSuggestion.generalization.identified_dimensions" :key="dim.name" class="dim-chip">
+                  <strong>{{ dim.name }}</strong>
+                  <span class="dim-hint">{{ dim.source_hint || dim.description }}</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Reasoning -->
+            <div v-if="aiSuggestion.generalization.reasoning" class="gen-reasoning">
+              <span class="gen-label">💡 일반화 근거:</span>
+              <p>{{ aiSuggestion.generalization.reasoning }}</p>
+            </div>
+          </div>
+        </div>
+
         <div class="diagrams-grid">
           <!-- Star Schema -->
           <div class="diagram-card">
@@ -612,6 +992,8 @@ function generateMondrianXML(): string {
         <!-- ETL Strategy -->
         <div class="etl-strategy">
           <h4>📋 ETL 전략</h4>
+          
+          <!-- Basic Strategy Info -->
           <div class="strategy-grid">
             <div class="strategy-item">
               <span class="label">동기화 방식</span>
@@ -622,14 +1004,90 @@ function generateMondrianXML(): string {
               <span class="value mono">{{ aiSuggestion.incremental_column }}</span>
             </div>
             <div class="strategy-item">
-              <span class="label">원본 테이블</span>
+              <span class="label">팩트 원본 테이블</span>
               <span class="value">{{ aiSuggestion.fact_sources?.join(', ') }}</span>
             </div>
           </div>
           
-          <!-- Mappings -->
-          <div class="mappings-table" v-if="aiSuggestion.suggested_mappings?.length">
-            <h5>컬럼 매핑 ({{ aiSuggestion.suggested_mappings.length }}개)</h5>
+          <!-- Dimension ETL Strategies -->
+          <div class="dimension-strategies" v-if="aiSuggestion.dimensions?.length">
+            <h5>📐 디멘전 테이블 ETL 전략</h5>
+            <div class="dimension-cards">
+              <div v-for="dim in aiSuggestion.dimensions" :key="dim.name" class="dimension-card">
+                <div class="dim-header">
+                  <span class="dim-name">{{ dim.name }}</span>
+                  <span :class="['dim-strategy-badge', dim.generation_strategy]">
+                    {{ dim.generation_strategy === 'etl' ? '📥 ETL 추출' : 
+                       dim.generation_strategy === 'generate' ? '🔧 자동 생성' : '✍️ 수동 관리' }}
+                  </span>
+                </div>
+                <p class="dim-description" v-if="dim.description">{{ dim.description }}</p>
+                
+                <!-- ETL Type: Source table specified -->
+                <div v-if="dim.generation_strategy === 'etl' && dim.source_table" class="dim-source">
+                  <div class="source-header">
+                    <span class="source-label">소스 테이블:</span>
+                    <code class="source-table">{{ dim.source_table }}</code>
+                  </div>
+                  <div v-if="dim.column_mappings?.length" class="dim-mappings">
+                    <table class="mini-table">
+                      <thead>
+                        <tr>
+                          <th>원본 컬럼</th>
+                          <th></th>
+                          <th>대상 컬럼</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(cm, ci) in dim.column_mappings" :key="ci">
+                          <td class="source">{{ cm.source }}</td>
+                          <td class="arrow">→</td>
+                          <td class="target">{{ cm.target }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                <!-- Generate Type: Show columns to be generated -->
+                <div v-else-if="dim.generation_strategy === 'generate'" class="dim-generate">
+                  <span class="generate-label">생성될 컬럼:</span>
+                  <div class="generated-columns">
+                    <span v-for="col in dim.columns" :key="col.name" class="column-chip">
+                      {{ col.name }} <span class="col-type">({{ col.type }})</span>
+                    </span>
+                  </div>
+                  <code v-if="dim.generate_sql" class="generate-sql">{{ dim.generate_sql }}</code>
+                </div>
+                
+                <!-- Manual Type: Show required columns -->
+                <div v-else-if="dim.generation_strategy === 'manual'" class="dim-manual">
+                  <span class="manual-label">⚠️ 수동으로 데이터를 입력해야 합니다</span>
+                  <div v-if="dim.columns?.length" class="required-columns">
+                    <span v-for="col in dim.columns" :key="col.name" class="column-chip">
+                      {{ col.name }} <span class="col-type">({{ col.type }})</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Legacy dimension_sources display (fallback) -->
+          <div class="dimension-sources" v-else-if="aiSuggestion.dimension_sources && Object.keys(aiSuggestion.dimension_sources).length">
+            <h5>📐 디멘전 소스</h5>
+            <div class="dim-source-list">
+              <div v-for="(sources, dimName) in aiSuggestion.dimension_sources" :key="dimName" class="dim-source-item">
+                <span class="dim-name">{{ dimName }}</span>
+                <span class="arrow">←</span>
+                <span class="sources">{{ Array.isArray(sources) ? sources.join(', ') : sources }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Fact Table Mappings -->
+          <div class="mappings-table" v-if="aiSuggestion.suggested_mappings?.length || aiSuggestion.fact_mappings?.length">
+            <h5>📊 팩트 테이블 컬럼 매핑 ({{ (aiSuggestion.suggested_mappings || aiSuggestion.fact_mappings)?.length }}개)</h5>
             <table>
               <thead>
                 <tr>
@@ -637,17 +1095,25 @@ function generateMondrianXML(): string {
                   <th></th>
                   <th>대상 (OLAP)</th>
                   <th>변환</th>
+                  <th>설명</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(m, i) in aiSuggestion.suggested_mappings" :key="i">
+                <tr v-for="(m, i) in (aiSuggestion.suggested_mappings || aiSuggestion.fact_mappings)" :key="i">
                   <td class="source">{{ m.source }}</td>
                   <td class="arrow">→</td>
                   <td class="target">{{ m.target }}</td>
                   <td class="transform">{{ m.transformation || '-' }}</td>
+                  <td class="description">{{ m.description || '-' }}</td>
                 </tr>
               </tbody>
             </table>
+          </div>
+          
+          <!-- Reasoning -->
+          <div class="strategy-reasoning" v-if="aiSuggestion.reasoning">
+            <h5>💡 AI 설명</h5>
+            <p>{{ aiSuggestion.reasoning }}</p>
           </div>
         </div>
         
@@ -659,11 +1125,560 @@ function generateMondrianXML(): string {
           <p class="hint">큐브와 ETL 파이프라인을 저장하고 Airflow에 배포합니다.</p>
         </div>
       </section>
+      </template>
+      
+      <!-- =====================================================================
+           Visual Modeler Tab
+           ===================================================================== -->
+      <template v-else-if="activeTab === 'visual'">
+        <div class="visual-modeler">
+          <!-- Toolbar -->
+          <div class="vm-toolbar">
+            <button class="btn btn-sm" @click="loadSampleTemplate">
+              📋 샘플 템플릿
+            </button>
+            <button class="btn btn-sm" @click="clearForm">
+              🗑️ 초기화
+            </button>
+            <div class="toolbar-spacer"></div>
+            <div class="preview-toggle">
+              <button 
+                :class="['toggle-btn', { active: previewMode === 'diagram' }]"
+                @click="previewMode = 'diagram'"
+              >다이어그램</button>
+              <button 
+                :class="['toggle-btn', { active: previewMode === 'xml' }]"
+                @click="previewMode = 'xml'"
+              >XML</button>
+            </div>
+          </div>
+          
+          <div class="vm-content">
+            <!-- Left: Form -->
+            <div class="vm-form">
+              <!-- Basic Info -->
+              <div class="form-section">
+                <h4>📦 기본 정보</h4>
+                <div class="form-group">
+                  <label>큐브 이름</label>
+                  <input 
+                    type="text" 
+                    v-model="cubeName" 
+                    placeholder="예: SalesCube"
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>팩트 테이블</label>
+                  <input 
+                    type="text" 
+                    v-model="factTable" 
+                    placeholder="예: dw.fact_sales"
+                    class="form-input"
+                  />
+                </div>
+              </div>
+              
+              <!-- Dimensions -->
+              <div class="form-section">
+                <div class="section-header">
+                  <h4>📐 디멘전</h4>
+                  <button class="btn btn-sm btn-add" @click="addDimension">
+                    + 추가
+                  </button>
+                </div>
+                
+                <div 
+                  v-for="(dim, dimIndex) in dimensions" 
+                  :key="dim.id" 
+                  class="dimension-item"
+                >
+                  <div class="dim-header-row">
+                    <input 
+                      v-model="dim.name" 
+                      placeholder="디멘전 이름" 
+                      class="form-input dim-name"
+                    />
+                    <button class="btn-remove" @click="removeDimension(dimIndex)">×</button>
+                  </div>
+                  
+                  <div class="dim-details">
+                    <div class="form-row">
+                      <input 
+                        v-model="dim.table" 
+                        placeholder="테이블 (예: dw.dim_time)" 
+                        class="form-input"
+                      />
+                      <input 
+                        v-model="dim.foreignKey" 
+                        placeholder="FK (예: time_id)" 
+                        class="form-input"
+                      />
+                    </div>
+                    
+                    <!-- Levels -->
+                    <div class="levels-section">
+                      <span class="levels-label">레벨:</span>
+                      <div 
+                        v-for="(level, levelIndex) in dim.levels" 
+                        :key="level.id" 
+                        class="level-item"
+                      >
+                        <input 
+                          v-model="level.name" 
+                          placeholder="이름" 
+                          class="form-input level-input"
+                        />
+                        <input 
+                          v-model="level.column" 
+                          placeholder="컬럼" 
+                          class="form-input level-input"
+                        />
+                        <button 
+                          class="btn-remove-level" 
+                          @click="removeLevel(dimIndex, levelIndex)"
+                        >×</button>
+                      </div>
+                      <button class="btn-add-level" @click="addLevel(dimIndex)">
+                        + 레벨 추가
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                <div v-if="dimensions.length === 0" class="empty-section">
+                  디멘전이 없습니다. "추가" 버튼을 클릭하세요.
+                </div>
+              </div>
+              
+              <!-- Measures -->
+              <div class="form-section">
+                <div class="section-header">
+                  <h4>📊 측정값</h4>
+                  <button class="btn btn-sm btn-add" @click="addMeasure">
+                    + 추가
+                  </button>
+                </div>
+                
+                <div 
+                  v-for="(measure, measureIndex) in measures" 
+                  :key="measure.id" 
+                  class="measure-item"
+                >
+                  <input 
+                    v-model="measure.name" 
+                    placeholder="이름" 
+                    class="form-input"
+                  />
+                  <input 
+                    v-model="measure.column" 
+                    placeholder="컬럼" 
+                    class="form-input"
+                  />
+                  <select v-model="measure.aggregator" class="form-select">
+                    <option value="sum">SUM</option>
+                    <option value="count">COUNT</option>
+                    <option value="avg">AVG</option>
+                    <option value="min">MIN</option>
+                    <option value="max">MAX</option>
+                  </select>
+                  <button class="btn-remove" @click="removeMeasure(measureIndex)">×</button>
+                </div>
+                
+                <div v-if="measures.length === 0" class="empty-section">
+                  측정값이 없습니다. "추가" 버튼을 클릭하세요.
+                </div>
+              </div>
+              
+              <!-- Upload Button -->
+              <div class="vm-actions">
+                <button 
+                  class="btn btn-success btn-upload" 
+                  @click="uploadCubeAndDeploy" 
+                  :disabled="loading || !cubeName || !factTable"
+                >
+                  <span v-if="loading" class="spinner"></span>
+                  <span v-else>📤 큐브 업로드 & 배포</span>
+                </button>
+              </div>
+            </div>
+            
+            <!-- Right: Preview -->
+            <div class="vm-preview">
+              <template v-if="previewMode === 'diagram'">
+                <div ref="starSchemaDiagram" class="preview-diagram"></div>
+              </template>
+              <template v-else>
+                <pre class="preview-xml">{{ generateMondrianXML() }}</pre>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
     </main>
   </div>
 </template>
 
 <style lang="scss" scoped>
+// Modeler Tabs
+.modeler-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  
+  svg {
+    opacity: 0.7;
+  }
+  
+  &:hover {
+    background: var(--color-bg-secondary);
+    color: var(--color-text);
+  }
+  
+  &.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: white;
+    
+    svg {
+      opacity: 1;
+    }
+  }
+}
+
+// Visual Modeler
+.visual-modeler {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 80px);
+}
+
+.vm-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  
+  .toolbar-spacer {
+    flex: 1;
+  }
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+}
+
+.preview-toggle {
+  display: flex;
+  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+  overflow: hidden;
+  
+  .toggle-btn {
+    padding: 6px 14px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    
+    &.active {
+      background: var(--color-accent);
+      color: white;
+    }
+  }
+}
+
+.vm-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.vm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.form-section {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 16px;
+  
+  h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.9375rem;
+    color: var(--color-text);
+  }
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  
+  h4 {
+    margin: 0;
+  }
+}
+
+.btn-add {
+  background: rgba(34, 139, 230, 0.15);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  
+  &:hover {
+    background: rgba(34, 139, 230, 0.25);
+  }
+}
+
+.form-group {
+  margin-bottom: 12px;
+  
+  label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+  
+  &::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
+.form-select {
+  padding: 8px 12px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.875rem;
+  min-width: 100px;
+  
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent);
+  }
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dimension-item {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.dim-header-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  
+  .dim-name {
+    flex: 1;
+    font-weight: 500;
+  }
+}
+
+.btn-remove {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: #ef4444;
+  font-size: 1rem;
+  cursor: pointer;
+  
+  &:hover {
+    background: rgba(239, 68, 68, 0.25);
+  }
+}
+
+.dim-details {
+  padding-left: 4px;
+}
+
+.levels-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  
+  .levels-label {
+    display: block;
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+}
+
+.level-item {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  
+  .level-input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+  }
+}
+
+.btn-remove-level {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  border-radius: 4px;
+  color: #ef4444;
+  font-size: 0.875rem;
+  cursor: pointer;
+  
+  &:hover {
+    background: rgba(239, 68, 68, 0.2);
+  }
+}
+
+.btn-add-level {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  
+  &:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+}
+
+.measure-item {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.empty-section {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  background: var(--color-bg-tertiary);
+  border-radius: 6px;
+}
+
+.vm-actions {
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  text-align: center;
+  
+  .btn-upload {
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 1rem;
+  }
+}
+
+.vm-preview {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-diagram {
+  flex: 1;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  
+  :deep(svg) {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+.preview-xml {
+  flex: 1;
+  margin: 0;
+  padding: 16px;
+  background: var(--color-bg-tertiary);
+  color: #82c91e;
+  font-family: 'Fira Code', 'Monaco', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 // Transfer Banner from Text2SQL
 .transfer-banner {
   display: flex;
@@ -901,6 +1916,138 @@ function generateMondrianXML(): string {
   gap: 24px;
 }
 
+// Query Generalization Section
+.generalization-section {
+  background: linear-gradient(135deg, rgba(130, 201, 30, 0.08) 0%, rgba(34, 139, 230, 0.08) 100%);
+  border: 1px solid rgba(130, 201, 30, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  
+  h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.9375rem;
+    color: #82c91e;
+  }
+}
+
+.generalization-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gen-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  
+  .gen-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+  }
+  
+  .gen-arrow {
+    font-size: 1.5rem;
+    color: #82c91e;
+    flex-shrink: 0;
+  }
+}
+
+.gen-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gen-value {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  
+  &.original {
+    color: var(--color-text-muted);
+  }
+  
+  &.generalized {
+    color: #82c91e;
+    font-weight: 500;
+  }
+}
+
+.pivot-capabilities {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}
+
+.pivot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pivot-chip {
+  padding: 6px 12px;
+  background: rgba(34, 139, 230, 0.2);
+  border: 1px solid rgba(34, 139, 230, 0.3);
+  border-radius: 16px;
+  font-size: 0.75rem;
+  color: var(--color-accent);
+}
+
+.identified-dims {
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+}
+
+.dim-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dim-chip {
+  padding: 8px 12px;
+  background: rgba(174, 62, 201, 0.15);
+  border: 1px solid rgba(174, 62, 201, 0.3);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  
+  strong {
+    font-size: 0.8125rem;
+    color: #ae3ec9;
+  }
+  
+  .dim-hint {
+    font-size: 0.6875rem;
+    color: var(--color-text-muted);
+  }
+}
+
+.gen-reasoning {
+  padding: 12px;
+  background: rgba(250, 176, 5, 0.1);
+  border: 1px solid rgba(250, 176, 5, 0.2);
+  border-radius: 8px;
+  
+  p {
+    margin: 8px 0 0 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+  }
+}
+
 .diagrams-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1034,6 +2181,241 @@ function generateMondrianXML(): string {
       color: var(--color-text-muted);
       font-size: 0.75rem;
     }
+    
+    .description {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      max-width: 200px;
+    }
+  }
+}
+
+// Dimension Strategy Styles
+.dimension-strategies {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  
+  h5 {
+    margin: 0 0 12px 0;
+  }
+}
+
+.dimension-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.dimension-card {
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 12px;
+  
+  .dim-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    
+    .dim-name {
+      font-weight: 600;
+      font-size: 0.875rem;
+      color: var(--color-text);
+    }
+    
+    .dim-strategy-badge {
+      font-size: 0.6875rem;
+      padding: 3px 8px;
+      border-radius: 12px;
+      
+      &.etl {
+        background: rgba(34, 139, 230, 0.2);
+        color: #228be6;
+      }
+      
+      &.generate {
+        background: rgba(130, 201, 30, 0.2);
+        color: #82c91e;
+      }
+      
+      &.manual {
+        background: rgba(250, 176, 5, 0.2);
+        color: #fab005;
+      }
+    }
+  }
+  
+  .dim-description {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin: 0 0 10px 0;
+    line-height: 1.4;
+  }
+  
+  .dim-source {
+    .source-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      
+      .source-label {
+        font-size: 0.6875rem;
+        color: var(--color-text-muted);
+      }
+      
+      .source-table {
+        background: rgba(34, 139, 230, 0.1);
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: var(--color-accent);
+      }
+    }
+  }
+  
+  .dim-mappings {
+    .mini-table {
+      width: 100%;
+      font-size: 0.6875rem;
+      border-collapse: collapse;
+      
+      th, td {
+        padding: 4px 6px;
+        border-bottom: 1px solid rgba(var(--color-border-rgb), 0.5);
+      }
+      
+      th {
+        background: rgba(0, 0, 0, 0.2);
+        font-weight: 500;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+      }
+      
+      .source {
+        font-family: monospace;
+        color: var(--color-accent);
+      }
+      
+      .arrow {
+        text-align: center;
+        color: #37b24d;
+      }
+      
+      .target {
+        font-family: monospace;
+        color: #ae3ec9;
+      }
+    }
+  }
+  
+  .dim-generate, .dim-manual {
+    .generate-label, .manual-label {
+      display: block;
+      font-size: 0.6875rem;
+      color: var(--color-text-muted);
+      margin-bottom: 6px;
+    }
+    
+    .generated-columns, .required-columns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    
+    .column-chip {
+      background: rgba(130, 201, 30, 0.15);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.6875rem;
+      color: #82c91e;
+      
+      .col-type {
+        color: var(--color-text-muted);
+        font-size: 0.625rem;
+      }
+    }
+    
+    .generate-sql {
+      display: block;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 0.6875rem;
+      color: var(--color-text-muted);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+  }
+  
+  .dim-manual {
+    .manual-label {
+      color: #fab005;
+    }
+    
+    .column-chip {
+      background: rgba(250, 176, 5, 0.15);
+      color: #fab005;
+    }
+  }
+}
+
+// Legacy dimension sources fallback
+.dimension-sources {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--color-bg-tertiary);
+  border-radius: 8px;
+  
+  .dim-source-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  
+  .dim-source-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    
+    .dim-name {
+      font-weight: 500;
+      color: #ae3ec9;
+    }
+    
+    .arrow {
+      color: #37b24d;
+    }
+    
+    .sources {
+      font-family: monospace;
+      color: var(--color-accent);
+    }
+  }
+}
+
+// Strategy reasoning
+.strategy-reasoning {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(34, 139, 230, 0.05);
+  border: 1px solid rgba(34, 139, 230, 0.2);
+  border-radius: 8px;
+  
+  h5 {
+    margin: 0 0 8px 0;
+  }
+  
+  p {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
   }
 }
 

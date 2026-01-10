@@ -143,6 +143,74 @@ export const generateDDL = async (schemaName: string, factTable: string, dimensi
   })
 }
 
+// Create DW Schema
+export const createDWSchema = async () => {
+  return fetchJson('/etl/schema/create', {
+    method: 'POST'
+  })
+}
+
+// Generate Star Schema DDL
+export const generateStarSchemaDDL = async (
+  cubeName: string,
+  factTableName: string,
+  factColumns: any[],
+  dimensions: any[],
+  dwSchema: string = 'dw'
+) => {
+  return fetchJson('/etl/ddl/generate', {
+    method: 'POST',
+    body: JSON.stringify({
+      cube_name: cubeName,
+      fact_table_name: factTableName,
+      fact_columns: factColumns,
+      dimensions: dimensions,
+      dw_schema: dwSchema
+    })
+  })
+}
+
+// Execute DDL
+export const executeDDL = async (ddl: string) => {
+  return fetchJson('/etl/ddl/execute', {
+    method: 'POST',
+    body: JSON.stringify({ ddl })
+  })
+}
+
+// Full provisioning: create schema, tables, and initial data
+export const provisionCube = async (
+  cubeName: string, 
+  aiSuggestion: any, 
+  dimensions: any[], 
+  measures: any[], 
+  factTable: string,
+  dwSchema: string = 'dw'
+) => {
+  return fetchJson('/etl/provision', {
+    method: 'POST',
+    body: JSON.stringify({
+      cube_name: cubeName,
+      fact_table: factTable,
+      dimensions: dimensions.map((dim: any) => ({
+        name: dim.name,
+        table: dim.table,
+        foreignKey: dim.foreignKey,
+        levels: dim.levels || [],
+        etlStrategy: dim.etlStrategy || 'etl',
+        sourceTable: dim.sourceTable || null
+      })),
+      measures: measures.map((m: any) => ({
+        name: m.name,
+        column: m.column,
+        aggregator: m.aggregator || 'sum'
+      })),
+      dw_schema: dwSchema,
+      generate_sample_data: true
+    })
+  })
+}
+
 // Health Check
 export const healthCheck = async () => {
   return fetchJson('/health')
@@ -184,5 +252,24 @@ export const deleteDAG = async (dagId: string) => {
 
 export const checkAirflowHealth = async () => {
   return fetchJson('/airflow/health')
+}
+
+// ============== DW Tables Management ==============
+
+export const listDWTables = async (schemaName: string = 'dw') => {
+  return fetchJson(`/etl/dw/tables?schema_name=${schemaName}`)
+}
+
+export const deleteDWTables = async (tables: string[] = [], schemaName: string = 'dw') => {
+  return fetchJson('/etl/dw/tables/delete', {
+    method: 'POST',
+    body: JSON.stringify({ tables, schema_name: schemaName })
+  })
+}
+
+export const dropDWSchema = async (schemaName: string = 'dw') => {
+  return fetchJson(`/etl/dw/schema?schema_name=${schemaName}`, {
+    method: 'DELETE'
+  })
 }
 

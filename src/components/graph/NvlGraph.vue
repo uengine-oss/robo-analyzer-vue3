@@ -68,10 +68,18 @@ const NVL_OPTIONS = {
   zoomOnClick: false,
   layout: 'forceDirected' as const,
   layoutOptions: {
-    iterations: 100,
+    iterations: 150,
     animationDuration: 0,
     disableAnimation: true,
     updateLayoutOnChange: false,
+    // 분리된 컴포넌트(클러스터) 배치 옵션
+    separateComponents: true,       // 연결되지 않은 컴포넌트 분리
+    componentSpacing: 200,          // 컴포넌트 간 간격
+    componentArrangement: 'grid',   // 컴포넌트 배열 방식: 'grid' | 'circle'
+    // Force 시뮬레이션 파라미터
+    nodeRepulsion: 800,             // 노드 간 반발력 (높을수록 더 넓게 분포)
+    linkDistance: 80,               // 연결된 노드 간 기본 거리
+    gravity: 0.05,                  // 중심으로 끌어당기는 힘
     physics: {
       enabled: false
     },
@@ -298,13 +306,14 @@ function toNvlRelationship(link: GraphData['links'][0], isSelected: boolean = fa
 // ============================================================================
 
 /**
- * 노드 타입별 통계 업데이트
+ * 노드 타입별 통계 업데이트 (전체 데이터 기반)
  */
 function updateNodeStats(): void {
   const stats = new Map<string, NodeStat>()
   
-  for (const node of nodeMap.values()) {
-    const labels = (node.properties?.labels as string[]) || []
+  // 전체 props.graphData에서 통계 계산 (limit 적용 전)
+  for (const node of props.graphData.nodes) {
+    const labels = node.labels || []
     const primaryLabel = labels[0] || '_Placeholder'
     
     if (primaryLabel === '_Placeholder') continue
@@ -324,19 +333,20 @@ function updateNodeStats(): void {
 }
 
 /**
- * 관계 타입별 통계 업데이트
+ * 관계 타입별 통계 업데이트 (전체 데이터 기반)
  */
 function updateRelationshipStats(): void {
   const stats = new Map<string, NodeStat>()
   
-  for (const rel of relationshipMap.values()) {
-    const type = rel.caption || 'UNKNOWN'
+  // 전체 props.graphData에서 통계 계산 (limit 적용 전)
+  for (const link of props.graphData.links) {
+    const type = link.type || 'UNKNOWN'
     const existing = stats.get(type)
     
     if (existing) {
       existing.count++
     } else {
-      stats.set(type, { count: 1, color: rel.color || '#9ca3af' })
+      stats.set(type, { count: 1, color: getRelationshipColor(type) })
     }
   }
   
@@ -1163,11 +1173,167 @@ watch([() => props.selectedNodeId, () => props.selectedRelationshipId], ([newNod
 // Public API (외부 노출)
 // ============================================================================
 
+/**
+ * 특정 노드로 포커스 (그래프에서 해당 노드를 중앙에 배치하고 선택)
+ */
+function focusOnNode(nodeId: string): void {
+  if (!nvlInstance.value || !nodeId) return
+  
+  // 노드가 존재하는지 확인
+  const targetNode = nodeMap.get(nodeId)
+  if (!targetNode) {
+    console.warn(`[focusOnNode] 노드를 찾을 수 없습니다: ${nodeId}`)
+    return
+  }
+  
+  // 노드 선택 이벤트 발생
+  emit('node-select', props.graphData?.nodes.find(n => n.id === nodeId) || null)
+  
+  // NVL의 fit 메서드로 해당 노드에 포커스
+  try {
+    // NVL fit 메서드: 특정 노드들을 화면에 맞춤
+    if (typeof nvlInstance.value.fit === 'function') {
+      nvlInstance.value.fit([nodeId], { animate: true })
+    }
+  } catch (error) {
+    console.warn('[focusOnNode] fit 메서드 호출 중 오류:', error)
+  }
+}
+
+/**
+ * 특정 노드와 연결된 노드만 표시 (검색 결과 선택 시)
+ * 기존 그래프를 초기화하고 해당 노드 + 직접 연결된 노드/관계만 로드
+ */
+function filterToNode(nodeId: string, depth: number = 1): void {
+  if (!nvlInstance.value || !props.graphData || !nodeId) return
+  
+  console.log(`[filterToNode] 노드 ${nodeId}와 연결된 노드만 표시 (depth: ${depth})`)
+  console.log(`[filterToNode] 전체 노드: ${props.graphData.nodes.length}개, 관계: ${props.graphData.links.length}개`)
+  
+  // 대상 노드 찾기
+  const targetNode = props.graphData.nodes.find(n => n.id === nodeId)
+  if (!targetNode) {
+    console.warn(`[filterToNode] 노드를 찾을 수 없습니다: ${nodeId}`)
+    return
+  }
+  
+  console.log(`[filterToNode] 대상 노드:`, targetNode.properties?.name || targetNode.id)
+  
+  // BFS로 연결된 노드 수집 (incoming + outgoing 모두)
+  const connectedNodeIds = new Set<string>([nodeId])
+  const connectedRelIds = new Set<string>()
+  
+  let currentLevel = new Set<string>([nodeId])
+  
+  for (let d = 0; d < depth; d++) {
+    const nextLevel = new Set<string>()
+    
+    for (const link of props.graphData.links) {
+      // source/target이 객체일 수도 있으므로 안전하게 처리
+      const sourceId = typeof link.source === 'object' && link.source !== null 
+        ? (link.source as { id?: string }).id || String(link.source)
+        : String(link.source)
+      const targetId = typeof link.target === 'object' && link.target !== null
+        ? (link.target as { id?: string }).id || String(link.target)
+        : String(link.target)
+      
+      // Outgoing: 현재 레벨 노드가 source인 경우
+      if (currentLevel.has(sourceId) && !connectedNodeIds.has(targetId)) {
+        nextLevel.add(targetId)
+        connectedNodeIds.add(targetId)
+        connectedRelIds.add(link.id)
+        console.log(`[filterToNode] Outgoing: ${sourceId} -> ${targetId} (${link.type})`)
+      }
+      // Incoming: 현재 레벨 노드가 target인 경우
+      if (currentLevel.has(targetId) && !connectedNodeIds.has(sourceId)) {
+        nextLevel.add(sourceId)
+        connectedNodeIds.add(sourceId)
+        connectedRelIds.add(link.id)
+        console.log(`[filterToNode] Incoming: ${sourceId} -> ${targetId} (${link.type})`)
+      }
+      // 이미 포함된 노드 간의 관계도 추가
+      if (connectedNodeIds.has(sourceId) && connectedNodeIds.has(targetId)) {
+        connectedRelIds.add(link.id)
+      }
+    }
+    
+    currentLevel = nextLevel
+  }
+  
+  console.log(`[filterToNode] 연결된 노드: ${connectedNodeIds.size}개, 관계: ${connectedRelIds.size}개`)
+  console.log(`[filterToNode] 노드 IDs:`, Array.from(connectedNodeIds))
+  
+  // 기존 그래프 초기화
+  nodeMap.clear()
+  relationshipMap.clear()
+  renderedNodeIds.clear()
+  renderedRelIds.clear()
+  hiddenNodeIds.clear()
+  nodeRenderQueue.length = 0
+  
+  // NVL 인스턴스 초기화
+  if (nvlInstance.value) {
+    try {
+      // 기존 노드/관계 모두 제거
+      const existingNodeIds = Array.from(nodeMap.keys())
+      if (existingNodeIds.length > 0) {
+        nvlInstance.value.removeNodesWithIds(existingNodeIds)
+      }
+    } catch (e) {
+      // 무시
+    }
+  }
+  
+  // 필터링된 노드/관계 추가
+  const nodesToAdd: NvlNode[] = []
+  const relsToAdd: NvlRelationship[] = []
+  
+  for (const node of props.graphData.nodes) {
+    if (connectedNodeIds.has(node.id)) {
+      const isSelected = node.id === nodeId
+      const nvlNode = toNvlNode(node, isSelected, false)
+      nodeMap.set(node.id, nvlNode)
+      nodesToAdd.push(nvlNode)
+      renderedNodeIds.add(node.id)
+    }
+  }
+  
+  for (const link of props.graphData.links) {
+    if (connectedRelIds.has(link.id)) {
+      const nvlRel = toNvlRelationship(link, false)
+      relationshipMap.set(link.id, nvlRel)
+      relsToAdd.push(nvlRel)
+      renderedRelIds.add(link.id)
+    }
+  }
+  
+  // NVL에 추가
+  if (nvlInstance.value && (nodesToAdd.length > 0 || relsToAdd.length > 0)) {
+    nvlInstance.value.addAndUpdateElementsInGraph(nodesToAdd, relsToAdd)
+  }
+  
+  // 통계 업데이트
+  updateNodeStats()
+  updateRelationshipStats()
+  
+  // 대상 노드로 포커스
+  emit('node-select', targetNode)
+  
+  // fit으로 전체 보기
+  nextTick(() => {
+    if (nvlInstance.value && typeof nvlInstance.value.fit === 'function') {
+      nvlInstance.value.fit(Array.from(connectedNodeIds), { animate: true })
+    }
+  })
+}
+
 defineExpose({
   resetGraph,
   updateGraph,
   updateNodeStyles,
   expandNodeChildren: expandNode,
+  focusOnNode,
+  filterToNode,
   nodeStats,
   relationshipStats,
   nodeCount: () => nodeMap.size,

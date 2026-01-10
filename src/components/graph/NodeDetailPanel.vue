@@ -8,9 +8,12 @@
  * - 노드/관계 타입별 통계 표시
  */
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { GraphNode, GraphLink } from '@/types'
 import { getNodeColor } from '@/config/graphStyles'
+
+// 검색 결과 최대 개수
+const MAX_SEARCH_RESULTS = 10
 
 // ============================================================================
 // 타입 정의
@@ -35,6 +38,7 @@ interface Props {
   isLimitApplied?: boolean  // limit 적용 여부
   maxDisplayNodes?: number  // 최대 표시 노드 수
   activeFilters?: string[]  // 활성화된 필터 (노드 라벨)
+  allNodes?: GraphNode[]   // 전체 노드 목록 (검색용)
 }
 
 interface PropertyItem {
@@ -66,7 +70,8 @@ const props = withDefaults(defineProps<Props>(), {
   isProcessing: false,
   isLimitApplied: false,
   maxDisplayNodes: 2000,
-  activeFilters: () => []
+  activeFilters: () => [],
+  allNodes: () => []
 })
 
 const emit = defineEmits<{
@@ -74,6 +79,8 @@ const emit = defineEmits<{
   'style-updated': []
   'label-filter': [label: string]
   'clear-filters': []
+  'node-select': [node: GraphNode]
+  'reset-graph': []
 }>()
 
 
@@ -83,6 +90,12 @@ const emit = defineEmits<{
 
 /** 펼침 상태 관리 */
 const expandedKeys = ref<Set<string>>(new Set())
+
+/** 노드 이름 검색 쿼리 */
+const nodeSearchQuery = ref('')
+
+/** 검색 입력 필드 포커스 상태 */
+const isSearchFocused = ref(false)
 
 
 // ============================================================================
@@ -179,6 +192,31 @@ const sortedRelStats = computed(() => {
     .sort((a, b) => b.count - a.count)
 })
 
+/** 노드 이름 검색 결과 */
+const searchResults = computed(() => {
+  const query = nodeSearchQuery.value.trim().toLowerCase()
+  if (!query || !props.allNodes || props.allNodes.length === 0) return []
+  
+  return props.allNodes
+    .filter(node => {
+      const name = node.properties?.name?.toString().toLowerCase() || ''
+      const elementId = node.id?.toString().toLowerCase() || ''
+      return name.includes(query) || elementId.includes(query)
+    })
+    .slice(0, MAX_SEARCH_RESULTS)
+})
+
+/** 검색 결과가 있는지 여부 */
+const hasSearchResults = computed(() => {
+  return searchResults.value.length > 0
+})
+
+/** 검색어가 입력되어 있고 결과 표시해야 하는지 */
+const showSearchResults = computed(() => {
+  const query = nodeSearchQuery.value.trim()
+  return query.length > 0 && isSearchFocused.value
+})
+
 /** limit 적용 여부 (isLimitApplied 또는 totalNodes > displayedNodes로 판단) */
 const showLimitWarning = computed(() => {
   return props.isLimitApplied || (props.totalNodes > props.displayedNodes && props.displayedNodes >= props.maxDisplayNodes)
@@ -264,6 +302,74 @@ function hasActiveFilters(): boolean {
  */
 function handleClearFilters(): void {
   emit('clear-filters')
+}
+
+/**
+ * 검색 결과에서 노드 선택
+ */
+function handleSearchResultSelect(node: GraphNode): void {
+  emit('node-select', node)
+  nodeSearchQuery.value = ''
+  isSearchFocused.value = false
+}
+
+/**
+ * 검색 입력 필드 포커스
+ */
+function handleSearchFocus(): void {
+  isSearchFocused.value = true
+}
+
+/**
+ * 검색 입력 필드 블러 (약간의 딜레이 후 결과 숨김)
+ */
+function handleSearchBlur(): void {
+  // 클릭 이벤트가 먼저 발생하도록 약간의 딜레이
+  setTimeout(() => {
+    isSearchFocused.value = false
+  }, 200)
+}
+
+/**
+ * 검색 초기화
+ */
+function clearSearch(): void {
+  nodeSearchQuery.value = ''
+}
+
+/**
+ * 노드 이름 가져오기 (name 또는 id)
+ */
+function getNodeDisplayName(node: GraphNode): string {
+  // 여러 속성에서 이름 추출 시도
+  const props = node.properties || {}
+  const name = props.name?.toString() 
+    || props.fqn?.toString() 
+    || props.title?.toString()
+    || props.description?.toString()?.substring(0, 50)
+    || ''
+  
+  // 이름이 없으면 ID 사용
+  if (!name) {
+    return node.id?.toString() || 'Unknown'
+  }
+  
+  return name
+}
+
+/**
+ * 검색 결과에 표시할 추가 정보 (테이블명, 스키마 등)
+ */
+function getNodeSubInfo(node: GraphNode): string {
+  const props = node.properties || {}
+  const parts: string[] = []
+  
+  // 스키마/테이블 정보
+  if (props.schema_name) parts.push(props.schema_name.toString())
+  if (props.table_name) parts.push(props.table_name.toString())
+  if (props.file_name) parts.push(props.file_name.toString())
+  
+  return parts.join(' • ')
 }
 
 
@@ -368,6 +474,64 @@ function handleClearFilters(): void {
     <!-- ========== 노드/관계 미선택 시: 통계 표시 ========== -->
     <template v-if="!node && !relationship">
       <div class="stats-wrapper">
+        <!-- 노드 이름 검색 섹션 -->
+        <div class="search-section">
+          <div class="search-input-wrapper">
+            <input
+              v-model="nodeSearchQuery"
+              type="text"
+              class="node-search-input"
+              placeholder="🔍 노드 이름으로 검색..."
+              @focus="handleSearchFocus"
+              @blur="handleSearchBlur"
+              @keyup.escape="clearSearch"
+            />
+            <button 
+              v-if="nodeSearchQuery" 
+              class="search-clear-btn"
+              @click="clearSearch"
+              title="검색 초기화"
+            >
+              ✕
+            </button>
+          </div>
+          <!-- 검색 결과 드롭다운 -->
+          <div v-if="showSearchResults" class="search-results-dropdown">
+            <div class="search-results-header" v-if="hasSearchResults">
+              검색 결과 ({{ searchResults.length }}개{{ searchResults.length >= MAX_SEARCH_RESULTS ? '+' : '' }})
+            </div>
+            <template v-if="hasSearchResults">
+              <div 
+                v-for="resultNode in searchResults" 
+                :key="resultNode.id"
+                class="search-result-item"
+                @mousedown.prevent="handleSearchResultSelect(resultNode)"
+              >
+                <span 
+                  class="result-label"
+                  :style="{ background: getNodeColor(resultNode.labels || []) }"
+                >{{ resultNode.labels?.[0] || 'Node' }}</span>
+                <div class="result-info">
+                  <span class="result-name">{{ getNodeDisplayName(resultNode) }}</span>
+                  <span class="result-sub" v-if="getNodeSubInfo(resultNode)">{{ getNodeSubInfo(resultNode) }}</span>
+                </div>
+              </div>
+            </template>
+            <div v-else class="search-no-results">
+              검색 결과가 없습니다
+            </div>
+          </div>
+          <!-- 전체 보기 버튼 (필터링된 상태에서만 표시) -->
+          <button 
+            v-if="displayedNodes < totalNodes"
+            class="reset-graph-btn"
+            @click="emit('reset-graph')"
+            title="전체 그래프 다시 로드"
+          >
+            🔄 전체 그래프 보기 ({{ totalNodes }}개 노드)
+          </button>
+        </div>
+
         <!-- Node labels 섹션 -->
         <div class="stats-section">
           <div class="section-header">
@@ -659,6 +823,173 @@ function handleClearFilters(): void {
   min-height: 0;
   overflow-x: hidden;
   padding-bottom: 8px;
+}
+
+// ============================================================================
+// 노드 검색
+// ============================================================================
+
+.search-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+  position: relative;
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.node-search-input {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  transition: border-color 0.2s, box-shadow 0.2s;
+
+  &::placeholder {
+    color: var(--color-text-tertiary);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  }
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
+  }
+}
+
+.search-results-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--color-bg-primary, #1a1b1e);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 9999;  /* 모든 요소 위에 표시 */
+}
+
+.search-results-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-light, #909296);
+  background: var(--color-bg-tertiary, #25262b);
+  border-bottom: 1px solid var(--color-border);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+
+  &:hover {
+    background: var(--color-bg-hover, #2c2e33);
+  }
+
+  &:not(:last-child) {
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+.result-label {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  border-radius: 4px;
+  text-transform: uppercase;
+  min-width: 60px;
+  text-align: center;
+}
+
+.result-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.result-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-bright, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-sub {
+  font-size: 11px;
+  color: var(--color-text-light, #909296);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-no-results {
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-text-tertiary, #5c5f66);
+}
+
+.reset-graph-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #fff;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
 }
 
 .stats-section {

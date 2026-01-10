@@ -48,7 +48,20 @@ function removeThinkingMessages(step?: number) {
   })
 }
 
-function scrollToBottom() {
+// 사용자가 스크롤을 위로 올렸는지 추적
+const isUserScrolledUp = ref(false)
+
+function handleScroll() {
+  if (!chatContainer.value) return
+  const { scrollTop, scrollHeight, clientHeight } = chatContainer.value
+  // 바닥에서 50px 이내면 바닥으로 간주
+  isUserScrolledUp.value = scrollHeight - scrollTop - clientHeight > 50
+}
+
+function scrollToBottom(force = false) {
+  // 사용자가 위로 스크롤한 경우 자동 스크롤 안함 (force가 아닌 경우)
+  if (isUserScrolledUp.value && !force) return
+  
   nextTick(() => {
     if (chatContainer.value) {
       chatContainer.value.scrollTop = chatContainer.value.scrollHeight
@@ -156,7 +169,7 @@ watch(() => langchainStore.streamingText, () => {
     </div>
     
     <!-- Chat Container -->
-    <div class="chat-container" ref="chatContainer">
+    <div class="chat-container" ref="chatContainer" @scroll="handleScroll">
       <div v-if="chatMessages.length === 0" class="empty-state">
         <div class="empty-icon">🦜⛓️</div>
         <h3>LangChain ReAct Agent</h3>

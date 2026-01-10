@@ -44,6 +44,8 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
+  nodes: () => [],
+  edges: () => [],
   isLoading: false
 })
 
@@ -58,44 +60,6 @@ const emit = defineEmits<{
 const { fitView } = useVueFlow()
 
 // ============================================================================
-// 가상 데이터 (Mock Data)
-// ============================================================================
-
-const mockNodes: LineageNode[] = [
-  // 소스 테이블들
-  { id: 'src-customers', name: 'stg_customers', type: 'SOURCE', properties: { columns: 7, schema: 'Snowflake_DWH / production / dbt_jaffle' } },
-  { id: 'src-orders', name: 'stg_orders', type: 'SOURCE', properties: { columns: 7, schema: 'Snowflake_DWH / production / dbt_jaffle' } },
-  { id: 'src-payments', name: 'stg_payments', type: 'SOURCE', properties: { columns: 5, schema: 'Snowflake_DWH / production / dbt_jaffle' } },
-  { id: 'src-products', name: 'products', type: 'SOURCE', properties: { columns: 8, schema: 'Snowflake_DWH / production / raw' } },
-  
-  // ETL 프로세스들
-  { id: 'etl-customer-summary', name: 'ETL_CUSTOMER_SUMMARY', type: 'ETL', properties: { operation: 'INSERT', file: 'ETL_CUSTOMER_SUMMARY.sql' } },
-  { id: 'etl-sales-report', name: 'ETL_SALES_REPORT', type: 'ETL', properties: { operation: 'MERGE', file: 'ETL_MONTHLY_SALES.sql' } },
-  
-  // 타겟 테이블들
-  { id: 'tgt-customers', name: 'customers', type: 'TARGET', properties: { columns: 15, schema: 'Snowflake_DWH / production / dbt_jaffle' } },
-  { id: 'tgt-customer-clean', name: 'Customers_clean', type: 'TARGET', properties: { columns: 7, schema: 'Snowflake_DWH / production / dbt_jaffle' } },
-  { id: 'tgt-sales-commission', name: 'Sales Commission', type: 'TARGET', properties: { columns: 12, model: 'tableau_feb_prod / model' } },
-]
-
-const mockEdges: LineageEdge[] = [
-  // 소스 → ETL
-  { id: 'e1', source: 'src-customers', target: 'etl-customer-summary', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e2', source: 'src-orders', target: 'etl-customer-summary', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e3', source: 'src-orders', target: 'etl-sales-report', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e4', source: 'src-payments', target: 'etl-sales-report', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e5', source: 'src-products', target: 'etl-sales-report', type: 'DATA_FLOW_TO', properties: {} },
-  
-  // ETL → 타겟
-  { id: 'e6', source: 'etl-customer-summary', target: 'tgt-customers', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e7', source: 'etl-customer-summary', target: 'tgt-customer-clean', type: 'DATA_FLOW_TO', properties: {} },
-  { id: 'e8', source: 'etl-sales-report', target: 'tgt-sales-commission', type: 'DATA_FLOW_TO', properties: {} },
-  
-  // 소스 → 타겟 직접 연결
-  { id: 'e9', source: 'src-customers', target: 'tgt-customers', type: 'TRANSFORMS_TO', properties: { via: 'direct' } },
-]
-
-// ============================================================================
 // 상태
 // ============================================================================
 
@@ -104,16 +68,11 @@ const vueFlowEdges = ref<Edge[]>([])
 const selectedNodeId = ref<string | null>(null)
 
 // ============================================================================
-// Computed - 실제 데이터 or Mock 데이터
+// Computed - 실제 데이터 사용
 // ============================================================================
 
-const effectiveNodes = computed(() => {
-  return props.nodes.length > 0 ? props.nodes : mockNodes
-})
-
-const effectiveEdges = computed(() => {
-  return props.edges.length > 0 ? props.edges : mockEdges
-})
+const effectiveNodes = computed(() => props.nodes ?? [])
+const effectiveEdges = computed(() => props.edges ?? [])
 
 const isEmpty = computed(() => vueFlowNodes.value.length === 0 && !props.isLoading)
 
@@ -217,7 +176,11 @@ function calculateLayout(): void {
   vueFlowEdges.value = flowEdges
   
   nextTick(() => {
-    setTimeout(() => fitView({ padding: 0.15 }), 100)
+    setTimeout(() => {
+      if (typeof fitView === 'function') {
+        fitView({ padding: 0.15 })
+      }
+    }, 100)
   })
 }
 

@@ -29,6 +29,17 @@ function toggleSchema(schema: string) {
 const isCardinalityModalOpen = ref(false)
 const pendingConnection = ref<ConnectionInfo | null>(null)
 
+// Edge Delete Modal State
+const isEdgeDeleteModalOpen = ref(false)
+const pendingDeleteEdge = ref<{
+  id: string
+  fromTable: string
+  fromColumn: string
+  toTable: string
+  toColumn: string
+  label: string
+} | null>(null)
+
 const { fitView, zoomIn, zoomOut } = useVueFlow()
 
 // Node types - using markRaw to prevent Vue from making the component reactive
@@ -50,6 +61,22 @@ const nodesWithSelection = computed(() => {
   }))
 })
 
+// 엣지에 애니메이션 클래스 적용
+const edgesWithAnimation = computed(() => {
+  return store.edges.map(edge => {
+    // 새로 추가된 엣지 감지
+    const isNewEdge = store.newlyAddedEdges.has(edge.id) || 
+      (edge.data?.source && edge.data?.target && 
+       store.newlyAddedEdges.has(`${edge.data.fromTable}.${edge.data.source}->${edge.data.toTable}.${edge.data.target}`))
+    
+    return {
+      ...edge,
+      class: isNewEdge ? 'edge-newly-added' : '',
+      animated: isNewEdge || edge.animated
+    }
+  })
+})
+
 // Provide handlers to child nodes
 provide('onRemoveTable', (tableName: string) => {
   store.removeTableFromCanvas(tableName)
@@ -67,13 +94,32 @@ onMounted(async () => {
 })
 
 // Handlers
+let semanticSearchTimeout: ReturnType<typeof setTimeout> | null = null
+
 function handleSearch() {
   store.searchQuery = searchQuery.value
+  
+  // 시멘틱 검색 디바운스 (500ms 후 실행)
+  if (semanticSearchTimeout) {
+    clearTimeout(semanticSearchTimeout)
+  }
+  
+  if (searchQuery.value.trim().length >= 2) {
+    semanticSearchTimeout = setTimeout(() => {
+      store.performSemanticSearch(searchQuery.value)
+    }, 500)
+  } else {
+    store.clearSemanticSearch()
+  }
 }
 
 function clearSearch() {
   searchQuery.value = ''
   store.searchQuery = ''
+  store.clearSemanticSearch()
+  if (semanticSearchTimeout) {
+    clearTimeout(semanticSearchTimeout)
+  }
 }
 
 async function handleDrop(event: DragEvent) {
@@ -119,6 +165,39 @@ function startDragTable(event: DragEvent, table: Text2SqlTableInfo) {
   }
 }
 
+// 테이블 더블클릭 - 캔버스에 추가
+async function handleTableDoubleClick(table: Text2SqlTableInfo) {
+  console.log('[SchemaCanvas] 🖱️ 테이블 더블클릭:', table.name)
+  await store.addTableToCanvas(table)
+  setTimeout(() => fitView({ padding: 0.3 }), 150)
+}
+
+// 시멘틱 검색 결과 드래그
+function startDragSemanticResult(event: DragEvent, result: { name: string; schema: string; description: string }) {
+  const table: Text2SqlTableInfo = {
+    name: result.name,
+    schema: result.schema,
+    description: result.description,
+    column_count: 0
+  }
+  if (event.dataTransfer) {
+    event.dataTransfer.setData('application/json', JSON.stringify({ table }))
+    event.dataTransfer.effectAllowed = 'copy'
+  }
+}
+
+// 시멘틱 검색 결과 더블클릭으로 캔버스에 추가
+async function addSemanticResultToCanvas(result: { name: string; schema: string; description: string }) {
+  const table: Text2SqlTableInfo = {
+    name: result.name,
+    schema: result.schema,
+    description: result.description,
+    column_count: 0
+  }
+  await store.addTableToCanvas(table)
+  setTimeout(() => fitView({ padding: 0.3 }), 150)
+}
+
 function onNodesChange(changes: NodeChange[]) {
   changes.forEach(change => {
     if (change.type === 'position' && 'id' in change && change.position) {
@@ -137,6 +216,90 @@ function onNodeDoubleClick(event: { node: { id: string } }) {
 
 function onPaneClick() {
   store.clearSelection()
+}
+
+// Edge double click - 삭제 확인 다이얼로그 표시
+function onEdgeDoubleClick(event: { edge: { id: string; label?: string; source: string; target: string; sourceHandle?: string; targetHandle?: string } }) {
+  const edge = event.edge
+  
+  // 엣지 정보 파싱
+  const fromTable = edge.source.replace('table-', '')
+  const toTable = edge.target.replace('table-', '')
+  
+  // sourceHandle에서 컬럼명 추출 (fk-COLUMN_NAME-source 형식)
+  let fromColumn = ''
+  if (edge.sourceHandle) {
+    const match = edge.sourceHandle.match(/^fk-(.+)-source$/)
+    if (match) {
+      fromColumn = match[1]
+    }
+  }
+  
+  // targetHandle에서 컬럼명 추출 (pk-COLUMN_NAME 형식)
+  let toColumn = ''
+  if (edge.targetHandle) {
+    const match = edge.targetHandle.match(/^pk-(.+?)(-right)?$/)
+    if (match) {
+      toColumn = match[1]
+    }
+  }
+  
+  // 라벨에서 컬럼 정보 추출 시도 (COLUMN → COLUMN 형식)
+  if ((!fromColumn || !toColumn) && edge.label) {
+    const labelStr = typeof edge.label === 'string' ? edge.label : ''
+    const labelMatch = labelStr.match(/^(.+?)\s*→\s*(.+)$/)
+    if (labelMatch) {
+      if (!fromColumn) fromColumn = labelMatch[1].trim()
+      if (!toColumn) toColumn = labelMatch[2].trim()
+    }
+  }
+  
+  pendingDeleteEdge.value = {
+    id: edge.id,
+    fromTable,
+    fromColumn,
+    toTable,
+    toColumn,
+    label: typeof edge.label === 'string' ? edge.label : `${fromTable} → ${toTable}`
+  }
+  isEdgeDeleteModalOpen.value = true
+}
+
+// 엣지 삭제 확인
+async function confirmDeleteEdge() {
+  if (!pendingDeleteEdge.value) return
+  
+  try {
+    const { fromTable, fromColumn, toTable, toColumn } = pendingDeleteEdge.value
+    
+    // API 호출하여 관계 삭제
+    await store.removeRelationship({
+      from_table: fromTable,
+      from_schema: 'public',  // 기본 스키마
+      from_column: fromColumn,
+      to_table: toTable,
+      to_schema: 'public',
+      to_column: toColumn,
+      relationship_type: 'FK_TO_TABLE'
+    })
+    
+    // 캔버스에서 엣지 제거
+    store.edges = store.edges.filter(e => e.id !== pendingDeleteEdge.value?.id)
+    
+    console.log(`[SchemaCanvas] Edge deleted: ${fromTable}.${fromColumn} → ${toTable}.${toColumn}`)
+  } catch (error) {
+    console.error('[SchemaCanvas] Failed to delete edge:', error)
+    alert('관계 삭제에 실패했습니다.')
+  } finally {
+    isEdgeDeleteModalOpen.value = false
+    pendingDeleteEdge.value = null
+  }
+}
+
+// 엣지 삭제 취소
+function cancelDeleteEdge() {
+  isEdgeDeleteModalOpen.value = false
+  pendingDeleteEdge.value = null
 }
 
 // Handle edge connection - show cardinality modal
@@ -227,6 +390,13 @@ async function handleAddTopTables() {
   setTimeout(() => fitView({ padding: 0.3 }), 200)
 }
 
+async function handleAddAllTables() {
+  // 전체 테이블 보기 모드 활성화
+  store.setFullViewMode(true)
+  await store.addAllTablesToCanvas()
+  setTimeout(() => fitView({ padding: 0.2 }), 300)
+}
+
 function handleClearCanvas() {
   if (confirm('캔버스를 비우시겠습니까?')) {
     store.clearCanvas()
@@ -288,6 +458,47 @@ async function handleRefresh() {
         <button v-if="searchQuery" class="search-clear" @click="clearSearch">×</button>
       </div>
       
+      <!-- 시멘틱 검색 결과 섹션 -->
+      <div v-if="searchQuery && store.dataSource === 'robo'" class="semantic-search-section">
+        <!-- 시멘틱 검색 중 표시 -->
+        <div v-if="store.isSemanticSearching" class="semantic-loading">
+          <span class="semantic-spinner"></span>
+          <span>의미 기반 검색 중...</span>
+        </div>
+        
+        <!-- 시멘틱 검색 결과 -->
+        <template v-else-if="store.semanticSearchResults.length > 0">
+          <div class="section-header semantic-header">
+            <span>🔮 의미 기반 추천</span>
+            <span class="section-count">{{ store.semanticSearchResults.length }}</span>
+          </div>
+          <div class="semantic-results">
+            <div 
+              v-for="result in store.semanticSearchResults" 
+              :key="`semantic-${result.name}`"
+              class="semantic-result-item"
+              draggable="true"
+              @dragstart="(e) => startDragSemanticResult(e, result)"
+              @dblclick="addSemanticResultToCanvas(result)"
+            >
+              <div class="semantic-result-header">
+                <IconTable :size="14" class="table-icon" />
+                <span class="semantic-result-name">{{ result.name }}</span>
+                <span class="similarity-badge">{{ Math.round(result.similarity * 100) }}%</span>
+              </div>
+              <div v-if="result.description" class="semantic-result-desc">
+                {{ result.description.substring(0, 80) }}...
+              </div>
+            </div>
+          </div>
+        </template>
+        
+        <!-- 시멘틱 검색 에러 -->
+        <div v-else-if="store.semanticSearchError" class="semantic-error">
+          ⚠️ {{ store.semanticSearchError }}
+        </div>
+      </div>
+      
       <!-- Tables on Canvas -->
       <div v-if="store.tablesOnCanvas.length > 0" class="table-section">
         <div class="section-header">
@@ -312,8 +523,35 @@ async function handleRefresh() {
         </div>
       </div>
       
-      <!-- Available Tables (Schema Tree) -->
-      <div class="table-section table-section--scrollable">
+      <!-- 텍스트 검색 결과 (searchQuery가 있을 때만 표시) -->
+      <div v-if="searchQuery && store.filteredTables.length > 0" class="table-section text-search-results">
+        <div class="section-header search-results-header">
+          <span>🔍 검색 결과</span>
+          <span class="section-count">{{ store.tablesNotOnCanvas.length }}</span>
+        </div>
+        <div class="table-list">
+          <div 
+            v-for="table in store.tablesNotOnCanvas" 
+            :key="`search-${table.name}`"
+            class="table-item table-item--search-result"
+            draggable="true"
+            @dragstart="(e) => startDragTable(e, table)"
+            @dblclick="handleTableDoubleClick(table)"
+          >
+            <IconTable :size="14" class="table-item__icon" />
+            <div class="table-item__info">
+              <span class="table-item__name">{{ table.name }}</span>
+              <span class="table-item__schema">{{ table.schema }}</span>
+            </div>
+            <div v-if="table.description" class="table-item__desc" :title="table.description">
+              {{ table.description.slice(0, 50) }}{{ table.description.length > 50 ? '...' : '' }}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Available Tables (Schema Tree) - 검색어가 없을 때만 표시 -->
+      <div v-else class="table-section table-section--scrollable">
         <div class="section-header">
           <span>사용 가능한 테이블</span>
           <span class="section-count">{{ store.tablesNotOnCanvas.length }}</span>
@@ -349,7 +587,7 @@ async function handleRefresh() {
                 class="table-item"
                 draggable="true"
                 @dragstart="(e) => startDragTable(e, table)"
-                @dblclick="store.addTableToCanvas(table)"
+                @dblclick="handleTableDoubleClick(table)"
               >
                 <IconTable :size="14" class="table-item__icon" />
                 <div class="table-item__info">
@@ -374,6 +612,15 @@ async function handleRefresh() {
           @click="handleAddTopTables"
         >
           상위 10개 테이블 추가
+        </button>
+        <button 
+          v-if="store.allTables.length > 0"
+          class="btn btn--primary btn--sm btn--block"
+          :disabled="store.loading"
+          @click="handleAddAllTables"
+          style="margin-top: 8px;"
+        >
+          {{ store.loading ? '로딩 중...' : '📊 전체 테이블 보기' }}
         </button>
       </div>
     </aside>
@@ -401,7 +648,7 @@ async function handleRefresh() {
       <VueFlow
         v-else
         :nodes="nodesWithSelection"
-        :edges="store.edges"
+        :edges="edgesWithAnimation"
         :node-types="nodeTypes"
         :default-viewport="{ zoom: 0.8, x: 50, y: 50 }"
         :min-zoom="0.2"
@@ -420,6 +667,7 @@ async function handleRefresh() {
         @node-click="onNodeClick"
         @node-double-click="onNodeDoubleClick"
         @pane-click="onPaneClick"
+        @edge-double-click="onEdgeDoubleClick"
         @connect="onConnect"
         @connect-start="onConnectStart"
         @connect-end="onConnectEnd"
@@ -557,15 +805,44 @@ async function handleRefresh() {
       
       <!-- Legend -->
       <div class="canvas-legend">
-        <div class="legend-title">범례</div>
-        <div class="legend-item">
-          <span class="legend-color" style="background: var(--color-accent);"></span>
-          <span>사용자 정의 릴레이션</span>
-        </div>
-        <div class="legend-item">
-          <span class="legend-color legend-color--dashed"></span>
-          <span>자동 감지 FK</span>
-        </div>
+        <div class="legend-title">FK 관계 범례</div>
+        
+        <!-- DDL 기반 FK (실선, 초록색) -->
+        <label class="legend-item legend-item--checkbox">
+          <input 
+            type="checkbox" 
+            :checked="store.fkVisibility.ddl" 
+            @change="store.toggleFkVisibility('ddl')"
+            class="legend-checkbox"
+          />
+          <span class="legend-line legend-line--ddl"></span>
+          <span class="legend-label">DDL 정의 FK</span>
+        </label>
+        
+        <!-- 프로시저 분석 FK (점선, 하늘색) -->
+        <label class="legend-item legend-item--checkbox">
+          <input 
+            type="checkbox" 
+            :checked="store.fkVisibility.procedure" 
+            @change="store.toggleFkVisibility('procedure')"
+            class="legend-checkbox"
+          />
+          <span class="legend-line legend-line--procedure"></span>
+          <span class="legend-label">프로시저 분석 FK</span>
+        </label>
+        
+        <!-- 사용자 추가 FK (실선, 주황색) -->
+        <label class="legend-item legend-item--checkbox">
+          <input 
+            type="checkbox" 
+            :checked="store.fkVisibility.user" 
+            @change="store.toggleFkVisibility('user')"
+            class="legend-checkbox"
+          />
+          <span class="legend-line legend-line--user"></span>
+          <span class="legend-label">사용자 추가 FK</span>
+        </label>
+        
         <div class="legend-divider"></div>
         <div class="legend-tip">
           💡 컬럼 핸들을 드래그하여 릴레이션 연결
@@ -586,6 +863,40 @@ async function handleRefresh() {
       @close="handleCardinalityModalClose"
       @confirm="handleCardinalityConfirm"
     />
+    
+    <!-- Edge Delete Confirmation Modal -->
+    <Teleport to="body">
+      <div v-if="isEdgeDeleteModalOpen" class="edge-delete-modal-overlay" @click.self="cancelDeleteEdge">
+        <div class="edge-delete-modal">
+          <div class="edge-delete-modal__header">
+            <span class="edge-delete-modal__icon">🗑️</span>
+            <h3>릴레이션 삭제</h3>
+          </div>
+          <div class="edge-delete-modal__body">
+            <p>다음 릴레이션을 삭제하시겠습니까?</p>
+            <div class="edge-delete-modal__info">
+              <div class="edge-delete-modal__table">
+                <span class="edge-delete-modal__label">From:</span>
+                <span class="edge-delete-modal__value">{{ pendingDeleteEdge?.fromTable }}.{{ pendingDeleteEdge?.fromColumn }}</span>
+              </div>
+              <div class="edge-delete-modal__arrow">→</div>
+              <div class="edge-delete-modal__table">
+                <span class="edge-delete-modal__label">To:</span>
+                <span class="edge-delete-modal__value">{{ pendingDeleteEdge?.toTable }}.{{ pendingDeleteEdge?.toColumn }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="edge-delete-modal__actions">
+            <button class="edge-delete-modal__btn edge-delete-modal__btn--cancel" @click="cancelDeleteEdge">
+              취소
+            </button>
+            <button class="edge-delete-modal__btn edge-delete-modal__btn--delete" @click="confirmDeleteEdge">
+              삭제
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -664,6 +975,52 @@ async function handleRefresh() {
 .vue-flow__handle:hover {
   background: var(--color-accent, #228be6) !important;
   transform: scale(1.5) !important;
+}
+
+/* 새로 추가된 엣지 애니메이션 */
+.vue-flow__edge.edge-newly-added path {
+  stroke: #51cf66 !important;
+  stroke-width: 3 !important;
+  animation: edge-draw 1s ease-out forwards, edge-pulse 0.8s ease-in-out 3;
+  filter: drop-shadow(0 0 6px rgba(81, 207, 102, 0.6));
+}
+
+.vue-flow__edge.edge-newly-added .vue-flow__edge-text {
+  animation: label-appear 0.5s ease-out 0.5s forwards;
+  opacity: 0;
+}
+
+@keyframes edge-draw {
+  0% {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+  }
+  100% {
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes edge-pulse {
+  0%, 100% {
+    stroke-width: 3px;
+    filter: drop-shadow(0 0 6px rgba(81, 207, 102, 0.6));
+  }
+  50% {
+    stroke-width: 5px;
+    filter: drop-shadow(0 0 12px rgba(81, 207, 102, 0.9));
+  }
+}
+
+@keyframes label-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>
 
@@ -798,6 +1155,101 @@ async function handleRefresh() {
   }
 }
 
+/* 시멘틱 검색 섹션 */
+.semantic-search-section {
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.1) 0%, rgba(34, 139, 230, 0.1) 100%);
+}
+
+.semantic-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  
+  .semantic-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.semantic-header {
+  background: rgba(124, 58, 237, 0.15);
+  color: #a78bfa;
+}
+
+.semantic-results {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.semantic-result-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(124, 58, 237, 0.15);
+  cursor: grab;
+  transition: background 0.15s;
+  
+  &:hover {
+    background: rgba(124, 58, 237, 0.2);
+  }
+  
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.semantic-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  
+  .table-icon {
+    color: #a78bfa;
+  }
+}
+
+.semantic-result-name {
+  flex: 1;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-bright);
+}
+
+.similarity-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #7c3aed, #3b82f6);
+  color: white;
+}
+
+.semantic-result-desc {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.semantic-error {
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  color: var(--color-warning);
+}
+
 /* Table Section */
 .table-section {
   padding: 8px;
@@ -898,6 +1350,56 @@ async function handleRefresh() {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-style: italic;
+}
+
+.table-item__schema {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  margin-left: 6px;
+  opacity: 0.7;
+}
+
+/* 텍스트 검색 결과 스타일 */
+.text-search-results {
+  max-height: 300px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.search-results-header {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+  color: white;
+  
+  span:first-child {
+    font-weight: 600;
+  }
+}
+
+.table-item--search-result {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border-left: 3px solid var(--color-accent);
+  
+  &:hover {
+    background: var(--color-bg-hover);
+    border-left-color: var(--color-success);
+  }
+  
+  .table-item__info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  
+  .table-item__desc {
+    width: 100%;
+    font-size: 0.7rem;
+    opacity: 0.8;
+  }
 }
 
 .table-item__drag-hint {
@@ -1165,6 +1667,55 @@ async function handleRefresh() {
   font-size: 0.75rem;
   color: var(--color-text-light);
   margin-bottom: 4px;
+  
+  &--checkbox {
+    cursor: pointer;
+    padding: 4px 0;
+    transition: opacity 0.2s ease;
+    
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+}
+
+.legend-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.legend-line {
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  
+  &--ddl {
+    background: #22c55e;  // 초록색 실선
+  }
+  
+  &--procedure {
+    // 하늘색 점선
+    background: repeating-linear-gradient(
+      to right,
+      #38bdf8 0px,
+      #38bdf8 5px,
+      transparent 5px,
+      transparent 9px
+    );
+  }
+  
+  &--user {
+    background: #f59e0b;  // 주황색 실선
+  }
+}
+
+.legend-label {
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .legend-color {
@@ -1196,6 +1747,127 @@ async function handleRefresh() {
   
   &:last-child {
     margin-bottom: 0;
+  }
+}
+
+/* Edge Delete Modal */
+.edge-delete-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.edge-delete-modal {
+  background: var(--color-bg-secondary, #2c2e33);
+  border: 1px solid var(--color-border, #373a40);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 360px;
+  max-width: 450px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  
+  &__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    
+    h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--color-text, #c1c2c5);
+    }
+  }
+  
+  &__icon {
+    font-size: 1.5rem;
+  }
+  
+  &__body {
+    margin-bottom: 24px;
+    
+    p {
+      margin: 0 0 16px 0;
+      color: var(--color-text-light, #909296);
+      font-size: 0.9rem;
+    }
+  }
+  
+  &__info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: var(--color-bg-tertiary, #25262b);
+    border-radius: 8px;
+    border: 1px solid var(--color-border, #373a40);
+  }
+  
+  &__table {
+    flex: 1;
+    
+    .edge-delete-modal__label {
+      display: block;
+      font-size: 0.7rem;
+      color: var(--color-text-muted, #5c5f66);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    
+    .edge-delete-modal__value {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--color-accent, #4dabf7);
+      font-family: var(--font-mono, monospace);
+    }
+  }
+  
+  &__arrow {
+    font-size: 1.2rem;
+    color: var(--color-text-muted, #5c5f66);
+  }
+  
+  &__actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+  }
+  
+  &__btn {
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    
+    &--cancel {
+      background: var(--color-bg-tertiary, #373a40);
+      color: var(--color-text-light, #909296);
+      
+      &:hover {
+        background: var(--color-bg, #25262b);
+      }
+    }
+    
+    &--delete {
+      background: #ef4444;
+      color: white;
+      
+      &:hover {
+        background: #dc2626;
+      }
+    }
   }
 }
 </style>

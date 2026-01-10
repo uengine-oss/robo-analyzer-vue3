@@ -37,7 +37,8 @@ export interface GraphEvent {
 }
 
 import { useSessionStore } from './session'
-import { antlrApi, roboApi, ingestApi } from '@/services/api'
+import { useSchemaCanvasStore } from './schemaCanvas'
+import { antlrApi, roboApi, ingestApi, type PipelineStatus, type PipelinePhaseInfo } from '@/services/api'
 
 // ============================================================================
 // 타입 정의
@@ -103,6 +104,51 @@ export const useProjectStore = defineStore('project', () => {
   
   const uploadedFiles = ref<UploadedFile[]>([])
   const uploadedDdlFiles = ref<UploadedFile[]>([])
+  
+  // ==========================================================================
+  // LocalStorage 키
+  // ==========================================================================
+  
+  const STORAGE_KEY = 'robo-analyzer-project-state'
+  
+  /**
+   * 프로젝트 상태를 LocalStorage에 저장
+   */
+  function saveToStorage() {
+    try {
+      const state = {
+        projectName: projectName.value,
+        sourceType: sourceType.value,
+        uploadedFiles: uploadedFiles.value,
+        uploadedDdlFiles: uploadedDdlFiles.value
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    } catch (e) {
+      console.warn('LocalStorage 저장 실패:', e)
+    }
+  }
+  
+  /**
+   * LocalStorage에서 프로젝트 상태 복원
+   */
+  function restoreFromStorage() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const state = JSON.parse(saved)
+        if (state.projectName) projectName.value = state.projectName
+        if (state.sourceType) sourceType.value = state.sourceType
+        if (state.uploadedFiles) uploadedFiles.value = state.uploadedFiles
+        if (state.uploadedDdlFiles) uploadedDdlFiles.value = state.uploadedDdlFiles
+        console.log('[projectStore] 상태 복원됨:', state.projectName)
+      }
+    } catch (e) {
+      console.warn('LocalStorage 복원 실패:', e)
+    }
+  }
+  
+  // 초기화 시 복원
+  restoreFromStorage()
   // 파싱 결과는 더 이상 JSON으로 받지 않음
   
   // ==========================================================================
@@ -118,7 +164,7 @@ export const useProjectStore = defineStore('project', () => {
   
   const isProcessing = ref(false)
   const currentStep = ref('')
-  const totalSteps = ref(3) // 업로드, 파싱, 분석
+  const totalSteps = ref(5) // DDL 처리, AST 생성, AI 분석, 테이블 설명 보강, 벡터라이징
   const completedSteps = ref(0)
   
   // ==========================================================================
@@ -129,6 +175,7 @@ export const useProjectStore = defineStore('project', () => {
   const pendingNodeCount = ref(0)
   const pendingUploadFiles = ref<File[]>([])
   const pendingUploadMeta = ref<BackendRequestMetadata | null>(null)
+  const pendingAction = ref<'upload' | 'restart' | null>(null) // 업로드 vs 인제스천 재시작 구분
   
   // ==========================================================================
   // 상태 - 통합 콘솔 메시지
@@ -142,6 +189,15 @@ export const useProjectStore = defineStore('project', () => {
   
   const graphEvents = ref<GraphEvent[]>([])
   let graphEventIdCounter = 0
+  
+  // ==========================================================================
+  // 상태 - 파이프라인 제어
+  // ==========================================================================
+  
+  const pipelineStatus = ref<PipelineStatus | null>(null)
+  const pipelinePhases = ref<PipelinePhaseInfo[]>([])
+  const isPipelinePaused = ref(false)
+  const isPipelineStopped = ref(false)
   
   // ==========================================================================
   // Computed - 그래프 데이터
@@ -346,8 +402,12 @@ export const useProjectStore = defineStore('project', () => {
     const result = await antlrApi.uploadFiles(meta, files, sessionStore.getHeaders())
     
     projectName.value = result.projectName
+    sourceType.value = meta.target as SourceType
     uploadedFiles.value = result.files
     uploadedDdlFiles.value = result.ddlFiles
+    
+    // LocalStorage에 저장
+    saveToStorage()
     
     addMessage('message', `✅ 업로드 완료: 소스 ${result.files.length}개, DDL ${result.ddlFiles.length}개`)
     completedSteps.value = 1
@@ -384,12 +444,43 @@ export const useProjectStore = defineStore('project', () => {
     clearGraphEvents()
     addMessage('message', '🔍 분석 시작...')
     
+    // 캔버스 스토어 가져오기 (실시간 업데이트용)
+    const schemaCanvasStore = useSchemaCanvasStore()
+    
     await roboApi.analyze(
       analyzeMeta.value,
       sessionStore.getHeaders(),
       (event) => {
         if (event.content) {
           addMessage(event.type === 'error' ? 'error' : 'message', event.content)
+        }
+        
+        // Phase 이벤트 처리 - 진행 상태 업데이트
+        if (event.type === 'phase_event') {
+          const phaseNum = event.phase as number
+          const phaseName = event.name || ''
+          
+          if (event.status === 'started') {
+            // 시작 상태 - 현재 단계 표시 및 진행중 상태
+            currentStep.value = `[${phaseNum + 1}단계] ${phaseName} 진행 중...`
+            // 진행률: 해당 단계의 시작점으로 설정 (0단계 시작=0%, 1단계 시작=25%, 2단계 시작=50%, 3단계 시작=75%)
+            completedSteps.value = phaseNum
+          } else if (event.status === 'completed') {
+            // 완료 상태 - Phase 0: DDL 처리, 1: AST 생성, 2: AI 분석, 3: 테이블 설명 보강
+            completedSteps.value = phaseNum + 1
+            currentStep.value = `[${phaseNum + 1}단계] ${phaseName} 완료`
+          }
+        }
+        
+        // 캔버스 업데이트 이벤트 처리 (실시간 반영)
+        if (event.type === 'canvas_update' && event.updateType && event.tableName) {
+          schemaCanvasStore.handleCanvasUpdate({
+            updateType: event.updateType,
+            tableName: event.tableName,
+            schema: event.schema,
+            field: event.field,
+            changes: event.changes
+          })
         }
         
         const graph = event.graph
@@ -399,12 +490,87 @@ export const useProjectStore = defineStore('project', () => {
           
           // 그래프 이벤트 추출 (실시간 피드용)
           extractAndAddGraphEvents(graph.Nodes || [], graph.Relationships || [])
+          
+          // 그래프 데이터에서 테이블/컬럼/릴레이션 업데이트 감지 → 캔버스에 실시간 반영
+          for (const node of graph.Nodes || []) {
+            const labels = node.Labels || []
+            const props = node.Properties || {}
+            
+            if (labels.includes('Table') && props.name) {
+              // 새 테이블 추가 또는 설명 업데이트
+              const tableName = props.name as string
+              const schema = (props.schema as string) || 'public'
+              
+              // 먼저 table_added 이벤트로 새 테이블 추가 시도
+              schemaCanvasStore.handleCanvasUpdate({
+                updateType: 'table_added',
+                tableName,
+                schema,
+                changes: {
+                  description: props.description || props.analyzed_description,
+                  column_count: props.column_count
+                }
+              })
+              
+              // 그 다음 설명 업데이트
+              if (props.description || props.analyzed_description) {
+                schemaCanvasStore.handleCanvasUpdate({
+                  updateType: 'table_description',
+                  tableName,
+                  schema,
+                  changes: {
+                    description: props.description || props.analyzed_description
+                  }
+                })
+              }
+            }
+            
+            if (labels.includes('Column') && props.name && props.table_name) {
+              schemaCanvasStore.handleCanvasUpdate({
+                updateType: 'column_description',
+                tableName: props.table_name as string,
+                field: props.name as string,
+                changes: {
+                  description: props.description || props.analyzed_description,
+                  dtype: props.dtype,
+                  nullable: props.nullable
+                }
+              })
+            }
+          }
+          
+          // 릴레이션 업데이트 감지 (FK_TO_TABLE)
+          for (const rel of graph.Relationships || []) {
+            const relType = rel.Type || ''
+            const relProps = rel.Properties || {}
+            
+            // FK_TO_TABLE 관계에서 테이블 정보 추출
+            if (relType === 'FK_TO_TABLE') {
+              const fromTable = (relProps.from_table as string) || ''
+              const toTable = (relProps.to_table as string) || ''
+              const sourceColumn = (relProps.sourceColumn as string) || (relProps.source_column as string) || ''
+              const targetColumn = (relProps.targetColumn as string) || (relProps.target_column as string) || ''
+              
+              if (fromTable && toTable) {
+                schemaCanvasStore.handleCanvasUpdate({
+                  updateType: 'relationship_added',
+                  tableName: fromTable,
+                  changes: {
+                    from_column: sourceColumn,
+                    to_table: toTable,
+                    to_column: targetColumn,
+                    source: relProps.source || 'procedure'
+                  }
+                })
+              }
+            }
+          }
         }
       }
     )
     
     addMessage('message', '✅ 분석 완료')
-    completedSteps.value = 3
+    completedSteps.value = totalSteps.value  // 전체 단계 완료
   }
   
   /**
@@ -504,6 +670,7 @@ export const useProjectStore = defineStore('project', () => {
       pendingNodeCount.value = nodeCount
       pendingUploadFiles.value = files
       pendingUploadMeta.value = meta
+      pendingAction.value = 'upload' // 업로드 액션으로 표시
       showDataConfirmModal.value = true
       return // 모달에서 사용자 선택을 기다림
     }
@@ -517,11 +684,13 @@ export const useProjectStore = defineStore('project', () => {
    */
   async function handleDataConfirmAction(action: 'delete' | 'append' | 'cancel') {
     showDataConfirmModal.value = false
+    const currentAction = pendingAction.value
     
     if (action === 'cancel') {
-      addMessage('message', '⏹️ 업로드가 취소되었습니다.')
+      addMessage('message', currentAction === 'restart' ? '⏹️ 인제스천이 취소되었습니다.' : '⏹️ 업로드가 취소되었습니다.')
       pendingUploadFiles.value = []
       pendingUploadMeta.value = null
+      pendingAction.value = null
       return
     }
     
@@ -538,20 +707,29 @@ export const useProjectStore = defineStore('project', () => {
         addMessage('error', `❌ 기존 데이터 삭제 실패: ${error}`)
         pendingUploadFiles.value = []
         pendingUploadMeta.value = null
+        pendingAction.value = null
         throw error
       }
     } else if (action === 'append') {
       addMessage('message', '📎 기존 데이터에 추가합니다...')
     }
     
-    // 저장된 파일과 메타데이터로 업로드 파이프라인 실행
-    const files = pendingUploadFiles.value
-    const meta = pendingUploadMeta.value
-    pendingUploadFiles.value = []
-    pendingUploadMeta.value = null
-    
-    if (files.length > 0 && meta) {
-      await executeUploadPipeline(files, meta)
+    // pendingAction에 따라 분기 처리
+    if (currentAction === 'restart') {
+      // 인제스천 재시작
+      pendingAction.value = null
+      await executeRestartPipeline()
+    } else {
+      // 업로드 파이프라인 실행
+      const files = pendingUploadFiles.value
+      const meta = pendingUploadMeta.value
+      pendingUploadFiles.value = []
+      pendingUploadMeta.value = null
+      pendingAction.value = null
+      
+      if (files.length > 0 && meta) {
+        await executeUploadPipeline(files, meta)
+      }
     }
   }
   
@@ -584,6 +762,198 @@ export const useProjectStore = defineStore('project', () => {
       throw error
     } finally {
       isProcessing.value = false
+    }
+  }
+  
+  // ==========================================================================
+  // Actions - 파이프라인 제어
+  // ==========================================================================
+  
+  /**
+   * 파이프라인 재시작 (이미 업로드된 파일로 파싱 → 분석 재실행)
+   * 기존 데이터가 있으면 모달을 통해 처리 방법을 선택합니다.
+   */
+  async function restartPipeline(): Promise<void> {
+    console.log('[restartPipeline] 시작', { 
+      projectName: projectName.value, 
+      sourceType: sourceType.value,
+      filesCount: uploadedFiles.value.length,
+      ddlCount: uploadedDdlFiles.value.length
+    })
+    
+    if (!projectName.value) {
+      addMessage('error', '❌ 프로젝트 이름이 설정되지 않았습니다. 먼저 파일을 업로드해주세요.')
+      return
+    }
+    
+    if (uploadedFiles.value.length === 0 && uploadedDdlFiles.value.length === 0) {
+      addMessage('error', '❌ 업로드된 파일이 없습니다.')
+      return
+    }
+    
+    // 인제스천 전에 기존 데이터 확인
+    addMessage('message', '🔍 기존 데이터 확인 중...')
+    const { hasData, nodeCount } = await checkExistingData()
+    
+    if (hasData) {
+      // 모달 표시를 위해 상태 저장
+      pendingNodeCount.value = nodeCount
+      pendingAction.value = 'restart' // 인제스천 재시작 액션으로 표시
+      showDataConfirmModal.value = true
+      return // 모달에서 사용자 선택을 기다림
+    }
+    
+    // 기존 데이터가 없으면 바로 진행
+    await executeRestartPipeline()
+  }
+  
+  /**
+   * 실제 인제스천 재시작 파이프라인 실행 (파싱 → 분석)
+   */
+  async function executeRestartPipeline(): Promise<void> {
+    isProcessing.value = true
+    completedSteps.value = 0
+    clearMessages()
+    
+    try {
+      addMessage('message', `🔄 인제스천 재시작... (프로젝트: ${projectName.value}, 타입: ${sourceType.value})`)
+      
+      // 파싱부터 재실행
+      await doParse()
+      
+      // 분석 (DDL 파싱 및 Neo4j 저장 포함)
+      await doAnalyze()
+      
+      currentStep.value = '전체 처리 완료'
+      addMessage('message', '🎉 인제스천이 완료되었습니다!')
+    } catch (error) {
+      console.error('[restartPipeline] 실패:', error)
+      addMessage('error', `❌ 인제스천 실패: ${error}`)
+      currentStep.value = '처리 실패'
+      throw error
+    } finally {
+      isProcessing.value = false
+    }
+  }
+  
+  /**
+   * 업로드된 파일 삭제
+   * @param relPath 삭제할 파일의 상대 경로
+   * @param type 파일 타입 ('file' | 'ddl')
+   */
+  function removeFile(relPath: string, type: 'file' | 'ddl' = 'file'): void {
+    console.log(`[removeFile] 파일 삭제: ${relPath}, 타입: ${type}`)
+    
+    if (type === 'ddl') {
+      uploadedDdlFiles.value = uploadedDdlFiles.value.filter(
+        f => f.fileName !== relPath
+      )
+    } else {
+      uploadedFiles.value = uploadedFiles.value.filter(
+        f => f.fileName !== relPath
+      )
+    }
+    
+    // LocalStorage에 즉시 저장
+    saveToStorage()
+    
+    addMessage('message', `🗑️ 파일 삭제됨: ${relPath}`)
+  }
+  
+  /**
+   * 모든 업로드된 파일 삭제
+   * @param type 삭제할 파일 타입 ('file' | 'ddl' | 'all')
+   */
+  function clearAllFiles(type: 'file' | 'ddl' | 'all' = 'all'): void {
+    console.log(`[clearAllFiles] 전체 파일 삭제: 타입=${type}`)
+    
+    let deletedCount = 0
+    
+    if (type === 'all' || type === 'file') {
+      deletedCount += uploadedFiles.value.length
+      uploadedFiles.value = []
+    }
+    
+    if (type === 'all' || type === 'ddl') {
+      deletedCount += uploadedDdlFiles.value.length
+      uploadedDdlFiles.value = []
+    }
+    
+    // LocalStorage에 즉시 저장
+    saveToStorage()
+    
+    addMessage('message', `🗑️ ${deletedCount}개 파일 전체 삭제됨`)
+  }
+  
+  /**
+   * 파이프라인 상태 조회
+   */
+  async function fetchPipelineStatus(): Promise<void> {
+    try {
+      pipelineStatus.value = await roboApi.getPipelineStatus(sessionStore.getHeaders())
+      isPipelinePaused.value = pipelineStatus.value?.isPaused || false
+      isPipelineStopped.value = pipelineStatus.value?.isStopped || false
+    } catch (error) {
+      console.error('파이프라인 상태 조회 실패:', error)
+    }
+  }
+  
+  /**
+   * 파이프라인 단계 정보 조회
+   */
+  async function fetchPipelinePhases(): Promise<void> {
+    try {
+      pipelinePhases.value = await roboApi.getPipelinePhases()
+    } catch (error) {
+      console.error('파이프라인 단계 정보 조회 실패:', error)
+    }
+  }
+  
+  /**
+   * 파이프라인 일시정지
+   */
+  async function pausePipeline(): Promise<void> {
+    try {
+      const result = await roboApi.controlPipeline('pause', sessionStore.getHeaders())
+      pipelineStatus.value = result.status
+      isPipelinePaused.value = result.status.isPaused
+      if (result.success) {
+        addMessage('message', '⏸️ 파이프라인 일시정지 요청됨')
+      }
+    } catch (error) {
+      addMessage('error', `⏸️ 일시정지 실패: ${error}`)
+    }
+  }
+  
+  /**
+   * 파이프라인 재개
+   */
+  async function resumePipeline(): Promise<void> {
+    try {
+      const result = await roboApi.controlPipeline('resume', sessionStore.getHeaders())
+      pipelineStatus.value = result.status
+      isPipelinePaused.value = result.status.isPaused
+      if (result.success) {
+        addMessage('message', '▶️ 파이프라인 재개됨')
+      }
+    } catch (error) {
+      addMessage('error', `▶️ 재개 실패: ${error}`)
+    }
+  }
+  
+  /**
+   * 파이프라인 중단
+   */
+  async function stopPipeline(): Promise<void> {
+    try {
+      const result = await roboApi.controlPipeline('stop', sessionStore.getHeaders())
+      pipelineStatus.value = result.status
+      isPipelineStopped.value = result.status.isStopped
+      if (result.success) {
+        addMessage('message', '⏹️ 파이프라인 중단됨')
+      }
+    } catch (error) {
+      addMessage('error', `⏹️ 중단 실패: ${error}`)
     }
   }
   
@@ -625,6 +995,13 @@ export const useProjectStore = defineStore('project', () => {
     
     // 메시지
     consoleMessages.value = []
+    
+    // LocalStorage 삭제
+    try {
+      localStorage.removeItem(STORAGE_KEY)
+    } catch (e) {
+      console.warn('LocalStorage 삭제 실패:', e)
+    }
   }
   
   // ==========================================================================
@@ -650,6 +1027,12 @@ export const useProjectStore = defineStore('project', () => {
     showDataConfirmModal,
     pendingNodeCount,
     
+    // State - 파이프라인 제어
+    pipelineStatus,
+    pipelinePhases,
+    isPipelinePaused,
+    isPipelineStopped,
+    
     // Computed (하위호환성: uploadMessages로도 접근 가능)
     uploadMessages: consoleMessages,
     metadata,
@@ -673,6 +1056,16 @@ export const useProjectStore = defineStore('project', () => {
     uploadFiles,
     handleDataConfirmAction,
     loadExistingGraphData,
+    restartPipeline,
+    removeFile,
+    clearAllFiles,
+    
+    // Actions - Pipeline Control
+    fetchPipelineStatus,
+    fetchPipelinePhases,
+    pausePipeline,
+    resumePipeline,
+    stopPipeline,
     
     // Actions - Misc
     deleteAllData,

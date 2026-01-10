@@ -7,10 +7,26 @@
       @select="handleHistorySelect"
     />
 
-    <!-- 채팅 컨테이너 -->
-    <div class="chat-container">
+    <!-- Direct SQL 모드 -->
+    <DirectSqlInput v-if="mode === 'direct'" class="direct-sql-full" @change-mode="(m) => mode = m" />
+
+    <!-- 채팅 컨테이너 (자연어/LangChain 모드) -->
+    <div v-else class="chat-container">
+      <!-- 우상단 모드 선택기 -->
+      <div class="mode-selector-container">
+        <button 
+          v-for="opt in modeOptions" 
+          :key="opt.value"
+          :class="['mode-option', { active: mode === opt.value }]"
+          @click="mode = opt.value"
+          :title="opt.desc"
+        >
+          <span class="opt-icon">{{ opt.icon }}</span>
+          <span class="opt-label">{{ opt.label }}</span>
+        </button>
+      </div>
       <!-- 채팅 메시지 영역 -->
-      <div class="chat-messages" ref="chatContainer">
+      <div class="chat-messages" ref="chatContainer" @scroll="handleScroll">
         <!-- 초기 안내 메시지 -->
         <div v-if="chatMessages.length === 0 && !reactStore.isRunning" class="welcome-message">
           <div class="welcome-icon">🤖</div>
@@ -361,9 +377,9 @@
       <!-- 입력 영역 -->
       <div class="chat-input-area">
         <!-- 진행 중 상태 표시 -->
-        <div v-if="reactStore.isRunning && !reactStore.isWaitingUser" class="status-bar">
+        <div v-if="isAnyRunning && !reactStore.isWaitingUser" class="status-bar">
           <span class="status-dot running"></span>
-          <span>AI가 작업 중입니다...</span>
+          <span>{{ mode === 'langchain' ? '⚡ 빠른 검색 중...' : '🧠 AI가 분석 중...' }}</span>
           <button class="cancel-btn" @click="handleCancel">중단</button>
         </div>
 
@@ -449,6 +465,8 @@ import { useSessionStore } from '@/stores/session'
 import ResultTable from './ResultTable.vue'
 import TypeWriter from './TypeWriter.vue'
 import HistoryPanel from './HistoryPanel.vue'
+import DirectSqlInput from './DirectSqlInput.vue'
+import { useLangChainStore } from '@/stores/langchain'
 import type { ReactExecutionResult } from '@/types'
 import { buildSqlLineDiff, type PreviousSqlLine, type SqlDiffLine } from '@/utils/sqlLineDiff'
 import {
@@ -479,6 +497,17 @@ interface ChatMessage {
 const reactStore = useReactStore()
 const historyStore = useHistoryStore()
 const sessionStore = useSessionStore()
+const langchainStore = useLangChainStore()
+
+// 모드: 'react' | 'langchain' | 'direct'
+type QueryMode = 'react' | 'langchain' | 'direct'
+const mode = ref<QueryMode>('react')
+
+const modeOptions: { value: QueryMode; label: string; icon: string; desc: string }[] = [
+  { value: 'react', label: '자연어 검색', icon: '🧠', desc: '정밀한 AI 분석' },
+  { value: 'langchain', label: '빠른 검색', icon: '⚡', desc: '빠른 단순 검색' },
+  { value: 'direct', label: 'SQL', icon: '📝', desc: '직접 입력' },
+]
 
 // 복잡한 쿼리 판별 (1개 이상 JOIN, 서브쿼리 등)
 function isComplexQuery(sql: string | null): boolean {
@@ -555,8 +584,9 @@ const exampleQueries = [
 ]
 
 // Computed
+const isAnyRunning = computed(() => reactStore.isRunning || langchainStore.isRunning)
 const canSubmit = computed(() =>
-  inputText.value.trim() && (!reactStore.isRunning || reactStore.isWaitingUser)
+  inputText.value.trim() && (!isAnyRunning.value || reactStore.isWaitingUser)
 )
 
 const inputPlaceholder = computed(() =>
@@ -691,7 +721,20 @@ function updateMessage(id: string, updates: Partial<ChatMessage>) {
   }
 }
 
-function scrollToBottom() {
+// 사용자가 스크롤을 위로 올렸는지 추적
+const isUserScrolledUp = ref(false)
+
+function handleScroll() {
+  if (!chatContainer.value) return
+  const { scrollTop, scrollHeight, clientHeight } = chatContainer.value
+  // 바닥에서 50px 이내면 바닥으로 간주
+  isUserScrolledUp.value = scrollHeight - scrollTop - clientHeight > 50
+}
+
+function scrollToBottom(force = false) {
+  // 사용자가 위로 스크롤한 경우 자동 스크롤 안함 (force가 아닌 경우)
+  if (isUserScrolledUp.value && !force) return
+  
   nextTick(() => {
     if (chatContainer.value) {
       chatContainer.value.scrollTop = chatContainer.value.scrollHeight
@@ -782,11 +825,19 @@ async function handleSubmit() {
   inputText.value = ''
 
   if (reactStore.isWaitingUser) {
-    // 사용자 응답
+    // 사용자 응답 (ReAct 모드)
     addMessage({ type: 'user', content: text })
     await reactStore.continueWithResponse(text)
+  } else if (mode.value === 'langchain') {
+    // LangChain 빠른 검색 모드
+    chatMessages.value = []
+    addMessage({ type: 'user', content: text })
+    await langchainStore.start(text, {
+      maxIterations: maxToolCalls.value,
+      maxSqlSeconds: maxSqlSeconds.value,
+    })
   } else {
-    // 새 질문
+    // ReAct 자연어 검색 모드
     chatMessages.value = []
     addMessage({ type: 'user', content: text })
     await reactStore.start(text, {
@@ -802,7 +853,11 @@ function handleNewline(_e: KeyboardEvent) {
 }
 
 function handleCancel() {
-  reactStore.cancel()
+  if (mode.value === 'langchain') {
+    langchainStore.cancel()
+  } else {
+    reactStore.cancel()
+  }
   addMessage({ type: 'error', content: '작업이 중단되었습니다.' })
 }
 
@@ -875,8 +930,10 @@ watch(() => reactStore.questionToUser, (question) => {
   }
 })
 
-// Watch for completion
+// Watch for completion (ReAct)
 watch(() => reactStore.status, (status) => {
+  if (mode.value !== 'react') return
+  
   if (status === 'completed') {
     if (reactStore.finalSql) {
       addMessage({
@@ -900,6 +957,63 @@ watch(() => reactStore.status, (status) => {
     addMessage({
       type: 'error',
       content: reactStore.error
+    })
+  }
+})
+
+// Watch for completion (LangChain)
+watch(() => langchainStore.status, (status) => {
+  if (mode.value !== 'langchain') return
+  
+  if (status === 'completed' && langchainStore.finalOutput) {
+    addMessage({
+      type: 'sql',
+      content: langchainStore.finalOutput
+    })
+  } else if (status === 'error' && langchainStore.error) {
+    addMessage({
+      type: 'error',
+      content: langchainStore.error
+    })
+  }
+})
+
+// Watch for LangChain phase changes
+watch(() => langchainStore.currentPhase, (phase) => {
+  if (mode.value !== 'langchain') return
+  
+  const currentStep = langchainStore.currentStep
+  
+  if (phase === 'thinking') {
+    addMessage({
+      type: 'thinking',
+      content: 'AI가 분석 중입니다...',
+      step: currentStep,
+    })
+  } else if (phase === 'acting' && langchainStore.currentTool) {
+    addMessage({
+      type: 'tool',
+      content: '',
+      step: currentStep,
+      toolName: langchainStore.currentTool,
+      params: langchainStore.currentToolInput || undefined,
+      isExecuting: true
+    })
+  }
+})
+
+// Watch for LangChain tool results
+watch(() => langchainStore.currentToolResult, (result) => {
+  if (mode.value !== 'langchain' || !result) return
+  
+  const step = langchainStore.currentStep
+  const toolMsg = [...chatMessages.value].reverse().find(
+    m => m.type === 'tool' && m.step === step
+  )
+  if (toolMsg) {
+    updateMessage(toolMsg.id, {
+      result: result,
+      isExecuting: false
     })
   }
 })
@@ -997,6 +1111,70 @@ $badge-error: #f87171;
   font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+// Direct SQL 전체 화면
+.direct-sql-full {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Mode Selector (우상단 세그먼트 버튼)
+// ═══════════════════════════════════════════════════════════════
+.mode-selector-container {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  border: 1px solid $border-subtle;
+  border-radius: 10px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: $text-muted;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  
+  .opt-icon {
+    font-size: 12px;
+  }
+  
+  .opt-label {
+    font-size: 11px;
+  }
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: $text-secondary;
+  }
+  
+  &.active {
+    background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(0, 168, 204, 0.2) 100%);
+    color: #00d4aa;
+    box-shadow: 0 2px 8px rgba(0, 212, 170, 0.15);
+    
+    .opt-icon {
+      filter: drop-shadow(0 0 3px rgba(0, 212, 170, 0.5));
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Chat Container
 // ═══════════════════════════════════════════════════════════════
@@ -1028,6 +1206,7 @@ $badge-error: #f87171;
   flex: 1;
   overflow-y: auto;
   padding: 32px;
+  padding-top: 56px; // 모드 스위치 공간 확보
   display: flex;
   flex-direction: column;
   gap: 20px;

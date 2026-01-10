@@ -453,7 +453,87 @@ export const roboApi = {
     }
     
     return response.json()
+  },
+
+  // ========== 파이프라인 제어 API ==========
+
+  /**
+   * 파이프라인 상태 조회
+   */
+  async getPipelineStatus(headers: Headers): Promise<PipelineStatus> {
+    const response = await fetch(`${ROBO_BASE_URL}/pipeline/status`, {
+      method: 'GET',
+      headers
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  },
+
+  /**
+   * 파이프라인 단계 정보 조회
+   */
+  async getPipelinePhases(): Promise<PipelinePhaseInfo[]> {
+    const response = await fetch(`${ROBO_BASE_URL}/pipeline/phases`, {
+      method: 'GET'
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
+  },
+
+  /**
+   * 파이프라인 제어 (일시정지/재개/중단)
+   */
+  async controlPipeline(
+    action: 'pause' | 'resume' | 'stop',
+    headers: Headers
+  ): Promise<PipelineControlResponse> {
+    const response = await fetch(`${ROBO_BASE_URL}/pipeline/control`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify({ action })
+    })
+    
+    if (!response.ok) {
+      await handleHttpError(response)
+    }
+    
+    return response.json()
   }
+}
+
+// 파이프라인 타입 정의
+export interface PipelinePhaseInfo {
+  phase: string
+  name: string
+  description: string
+  order: number
+  canPause: boolean
+}
+
+export interface PipelineStatus {
+  sessionId: string
+  currentPhase: string
+  phaseName: string
+  phaseOrder: number
+  isPaused: boolean
+  isStopped: boolean
+  phaseProgress: number
+  phaseMessage: string
+  phases: PipelinePhaseInfo[]
+}
+
+export interface PipelineControlResponse {
+  success: boolean
+  action: string
+  status: PipelineStatus
 }
 
 // ============================================================================
@@ -598,6 +678,33 @@ export const roboSchemaApi = {
   },
   
   /**
+   * 특정 테이블과 연결된 모든 테이블 조회 (Neo4j Cypher)
+   */
+  async getRelatedTables(
+    sessionId: string,
+    tableName: string
+  ): Promise<{
+    base_table: string
+    tables: Array<{ name: string; schema: string; description?: string }>
+    relationships: Array<{ 
+      from_table: string
+      to_table: string
+      type: string
+      source?: 'ddl' | 'procedure' | 'user'  // FK 관계 출처
+      column_pairs?: Array<{ source: string; target: string }>
+    }>
+  }> {
+    const response = await fetch(`${ROBO_BASE_URL}/graph/related-tables/${encodeURIComponent(tableName)}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
    * 테이블 관계 추가 (Neo4j)
    */
   async addRelationship(
@@ -644,6 +751,44 @@ export const roboSchemaApi = {
     const response = await fetch(`${ROBO_BASE_URL}/schema/relationships?${searchParams}`, {
       method: 'DELETE',
       headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 시멘틱 검색: 테이블 설명의 의미적 유사도 기반 검색
+   */
+  async semanticSearch(
+    sessionId: string,
+    query: string,
+    options?: { projectName?: string; limit?: number; apiKey?: string }
+  ): Promise<Array<{
+    name: string
+    schema: string
+    description: string
+    similarity: number
+  }>> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Session-UUID': sessionId
+    }
+    
+    if (options?.apiKey) {
+      headers['X-API-Key'] = options.apiKey
+    }
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/semantic-search`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        query,
+        project_name: options?.projectName,
+        limit: options?.limit || 10
+      })
     })
     
     if (!response.ok) {

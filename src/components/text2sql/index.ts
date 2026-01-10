@@ -15,4 +15,5 @@ export { default as SchemaView } from './SchemaView.vue'
 export { default as DatabaseTree } from './DatabaseTree.vue'
 export { default as TableCard } from './TableCard.vue'
 export { default as ColumnDetailPanel } from './ColumnDetailPanel.vue'
+export { default as DirectSqlInput } from './DirectSqlInput.vue'
 

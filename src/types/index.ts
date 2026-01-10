@@ -141,7 +141,7 @@ export interface ClassInfo {
 export type StreamMessageType = 'message' | 'error' | 'data' | 'status'
 
 /** 스트림 이벤트 타입 */
-export type StreamEventType = 'message' | 'data' | 'status' | 'complete' | 'error'
+export type StreamEventType = 'message' | 'data' | 'status' | 'complete' | 'error' | 'phase_event' | 'canvas_update'
 
 /** 스트림 메시지 (UI 표시용) */
 export interface StreamMessage {
@@ -169,6 +169,20 @@ export interface StreamEvent {
   // 진행 상태 (status 이벤트용)
   step?: number
   done?: boolean
+  
+  // Phase 이벤트 (phase_event 용)
+  phase?: number
+  name?: string
+  status?: 'started' | 'in_progress' | 'completed' | 'skipped' | 'error'
+  progress?: number
+  details?: Record<string, unknown>
+  
+  // 캔버스 업데이트 이벤트 (canvas_update 용)
+  updateType?: 'table_description' | 'column_description' | 'relationship_added' | 'column_added' | 'table_added'
+  tableName?: string
+  schema?: string
+  field?: string
+  changes?: Record<string, unknown>
   
   // 에러 정보
   errorType?: string

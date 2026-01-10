@@ -9,11 +9,12 @@ import UploadTree from './UploadTree.vue'
 import JsonViewer from './JsonViewer.vue'
 import DataConfirmModal from '@/components/common/DataConfirmModal.vue'
 import type { DataAction } from '@/components/common/DataConfirmModal.vue'
+import PipelineControlPanel from './PipelineControlPanel.vue'
 import { buildUploadTreeFromUploadedFiles, uniqueFilesByRelPath } from '@/utils/upload'
 import { roboApi, type DetectTypesResponse } from '@/services/api'
 import type { FileTypeResult } from '@/services/api'
 void (0 as unknown as FileTypeResult) // suppress unused warning
-import { IconFolder, IconDatabase, IconFile, IconFolderOpen, IconLightbulb, IconSettings, IconX } from '@/components/icons'
+import { IconFolder, IconDatabase, IconFile, IconFolderOpen, IconLightbulb, IconSettings, IconX, IconPlay, IconTrash } from '@/components/icons'
 
 const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
@@ -25,6 +26,15 @@ const {
   showDataConfirmModal,
   pendingNodeCount
 } = storeToRefs(projectStore)
+
+// 인제스천 재시작
+const handleRestartPipeline = async () => {
+  try {
+    await projectStore.restartPipeline()
+  } catch (error) {
+    console.error('인제스천 실패:', error)
+  }
+}
 
 // 프로세싱 시작 시 그래프 탭으로 바로 이동 (실시간 그래프 렌더링)
 watch(isProcessing, (processing) => {
@@ -277,6 +287,52 @@ const handleTreeSelect = (relPath: string) => {
   activeTabId.value = tabId
 }
 
+// 파일 삭제 핸들러
+const handleRemoveFile = (relPath: string) => {
+  projectStore.removeFile(relPath, 'file')
+  // 열려있는 탭도 닫기
+  const tabId = `file-${relPath}`
+  const tabIndex = openTabs.value.findIndex(t => t.id === tabId)
+  if (tabIndex !== -1) {
+    openTabs.value.splice(tabIndex, 1)
+    if (activeTabId.value === tabId) {
+      activeTabId.value = openTabs.value[0]?.id || null
+    }
+  }
+}
+
+// DDL 파일 삭제 핸들러
+const handleRemoveDdlFile = (relPath: string) => {
+  projectStore.removeFile(relPath, 'ddl')
+  // 열려있는 탭도 닫기
+  const tabId = `file-${relPath}`
+  const tabIndex = openTabs.value.findIndex(t => t.id === tabId)
+  if (tabIndex !== -1) {
+    openTabs.value.splice(tabIndex, 1)
+    if (activeTabId.value === tabId) {
+      activeTabId.value = openTabs.value[0]?.id || null
+    }
+  }
+}
+
+// 모든 파일 삭제 핸들러
+const handleClearAllFiles = () => {
+  if (!confirm('모든 파일을 삭제하시겠습니까?')) return
+  projectStore.clearAllFiles('file')
+  // 모든 탭 닫기
+  openTabs.value = []
+  activeTabId.value = null
+}
+
+// 모든 DDL 파일 삭제 핸들러
+const handleClearAllDdlFiles = () => {
+  if (!confirm('모든 DDL 파일을 삭제하시겠습니까?')) return
+  projectStore.clearAllFiles('ddl')
+  // 모든 탭 닫기
+  openTabs.value = []
+  activeTabId.value = null
+}
+
 // 탭 닫기
 const closeTab = (tabId: string) => {
   const index = openTabs.value.findIndex(t => t.id === tabId)
@@ -374,11 +430,31 @@ const handleDataConfirmAction = async (action: DataAction) => {
         <!-- 파일 업로드 후: Files/DDL 2영역 분리 -->
         <template v-else>
           <aside class="sidebar">
+            <!-- 인제스천 시작 버튼 -->
+            <div class="ingest-action">
+              <button 
+                class="btn btn--primary ingest-btn"
+                @click="handleRestartPipeline"
+                :disabled="isProcessing"
+              >
+                <IconPlay :size="16" />
+                <span>{{ isProcessing ? '처리 중...' : '인제스천 시작' }}</span>
+              </button>
+            </div>
+            
             <!-- 파일 트리 패널 -->
             <section class="files-panel">
               <div class="panel-header">
                 <IconFolder :size="14" />
                 <h3 class="panel-title">파일 ({{ uploadedFiles.length }})</h3>
+                <button 
+                  v-if="uploadedFiles.length > 0"
+                  class="clear-all-btn"
+                  @click="handleClearAllFiles"
+                  title="모든 파일 삭제"
+                >
+                  <IconTrash :size="12" />
+                </button>
               </div>
               <UploadTree
                 v-if="uploadedFiles.length > 0"
@@ -386,8 +462,9 @@ const handleDataConfirmAction = async (action: DataAction) => {
                 :show-header="false"
                 :selected-rel-path="selectedRelPath"
                 :enable-dn-d="false"
-                :show-remove-button="false"
+                :show-remove-button="true"
                 @select="handleTreeSelect"
+                @remove="handleRemoveFile"
               />
               <div v-else class="empty-section">파일 없음</div>
             </section>
@@ -397,6 +474,14 @@ const handleDataConfirmAction = async (action: DataAction) => {
               <div class="panel-header">
                 <IconDatabase :size="14" />
                 <h3 class="panel-title">DDL ({{ uploadedDdlFiles.length }})</h3>
+                <button 
+                  v-if="uploadedDdlFiles.length > 0"
+                  class="clear-all-btn"
+                  @click="handleClearAllDdlFiles"
+                  title="모든 DDL 파일 삭제"
+                >
+                  <IconTrash :size="12" />
+                </button>
               </div>
               <div class="ddl-content">
                 <UploadTree
@@ -405,8 +490,9 @@ const handleDataConfirmAction = async (action: DataAction) => {
                   :show-header="false"
                   :selected-rel-path="selectedRelPath"
                   :enable-dn-d="false"
-                  :show-remove-button="false"
+                  :show-remove-button="true"
                   @select="handleTreeSelect"
+                  @remove="handleRemoveDdlFile"
                 />
                 <div v-else class="empty-section">DDL 파일 없음</div>
               </div>
@@ -466,6 +552,9 @@ const handleDataConfirmAction = async (action: DataAction) => {
       @files-updated="handleFilesUpdated"
     />
     
+    <!-- 파이프라인 제어 패널 -->
+    <PipelineControlPanel :is-visible="isProcessing" />
+    
     <!-- 데이터 확인 모달 -->
     <DataConfirmModal
       :is-open="showDataConfirmModal"
@@ -519,6 +608,24 @@ const handleDataConfirmAction = async (action: DataAction) => {
 // 사이드바 레이아웃 (Files/DDL 2영역 분리)
 // ============================================================================
 
+.ingest-action {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.ingest-btn {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -554,6 +661,27 @@ const handleDataConfirmAction = async (action: DataAction) => {
     font-weight: 600;
     color: var(--color-text);
     margin: 0;
+    flex: 1;
+  }
+  
+  .clear-all-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    
+    &:hover {
+      background: var(--color-error);
+      color: white;
+    }
   }
   
   :deep(.tree) {
@@ -594,6 +722,27 @@ const handleDataConfirmAction = async (action: DataAction) => {
     font-weight: 600;
     color: var(--color-text);
     margin: 0;
+    flex: 1;
+  }
+  
+  .clear-all-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    
+    &:hover {
+      background: var(--color-error);
+      color: white;
+    }
   }
   
   .ddl-content {

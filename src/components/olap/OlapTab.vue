@@ -10,7 +10,7 @@ import CubeDesigner from './CubeDesigner.vue'
 import PivotAnalysis from './PivotAnalysis.vue'
 
 const store = useOlapStore()
-const activeSubTab = ref<'design' | 'analysis'>('design')
+const activeSubTab = ref<'design' | 'analysis'>('analysis')
 const showCubeManager = ref(false)
 const deleting = ref<string | null>(null)
 
@@ -24,17 +24,47 @@ onMounted(async () => {
 
 // Delete a single cube
 async function deleteCube(cubeName: string) {
+  // 먼저 기본 삭제 확인
   if (!confirm(`'${cubeName}' 큐브를 삭제하시겠습니까?`)) return
+  
+  // DW 테이블도 삭제할지 물어봄
+  const deleteDWTables = confirm(
+    `관련 DW 테이블(dw.fact_*, dw.dim_*)도 함께 삭제하시겠습니까?\n\n` +
+    `"확인"을 누르면 DW 테이블도 삭제됩니다.\n` +
+    `"취소"를 누르면 큐브 메타데이터만 삭제됩니다.`
+  )
   
   deleting.value = cubeName
   try {
+    // 큐브 삭제
     await olapApi.deleteCube(cubeName)
-    // Also delete ETL config if exists
+    
+    // ETL config 삭제
     try {
       await olapApi.deleteETLConfig(cubeName)
     } catch (e) {
       // ETL config might not exist, ignore
     }
+    
+    // DW 테이블 삭제 (사용자가 선택한 경우)
+    if (deleteDWTables) {
+      try {
+        // 큐브 이름 기반으로 관련 테이블 삭제
+        const normalizedName = cubeName.toLowerCase().replace(/[^a-z0-9]/g, '_')
+        const tablesToDelete = [
+          `fact_${normalizedName}`,
+          `dim_time`,
+          `dim_site`, 
+          `dim_tag`,
+          // 일반적인 패턴의 테이블들도 포함
+          ...await getDWTablesForCube(cubeName)
+        ]
+        await olapApi.deleteDWTables(tablesToDelete, 'dw')
+      } catch (e) {
+        console.warn('DW 테이블 삭제 실패:', e)
+      }
+    }
+    
     await store.loadCubes()
   } catch (e: any) {
     alert(`삭제 실패: ${e.message}`)
@@ -43,13 +73,38 @@ async function deleteCube(cubeName: string) {
   }
 }
 
+// 큐브에 관련된 DW 테이블 목록 가져오기
+async function getDWTablesForCube(_cubeName: string): Promise<string[]> {
+  try {
+    const result = await olapApi.listDWTables('dw')
+    return result.tables || []
+  } catch (e) {
+    return []
+  }
+}
+
 // Delete all cubes
 async function deleteAllCubes() {
   if (!confirm('모든 큐브를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return
   
+  // DW 테이블도 삭제할지 물어봄
+  const deleteDWTables = confirm(
+    `DW 스키마의 모든 테이블도 함께 삭제하시겠습니까?\n\n` +
+    `"확인"을 누르면 dw 스키마의 모든 테이블이 삭제됩니다.`
+  )
+  
   try {
     await olapApi.deleteAllCubes()
     await olapApi.deleteAllETLConfigs()
+    
+    if (deleteDWTables) {
+      try {
+        await olapApi.deleteDWTables([], 'dw') // 빈 배열 = 모든 테이블 삭제
+      } catch (e) {
+        console.warn('DW 테이블 삭제 실패:', e)
+      }
+    }
+    
     await store.loadCubes()
     showCubeManager.value = false
   } catch (e: any) {
@@ -67,11 +122,23 @@ async function deleteAllCubes() {
           <span class="icon">📊</span>
           OLAP 분석
         </h1>
-        <p class="subtitle">스타 스키마 설계 및 피벗 테이블 분석</p>
+        <p class="subtitle">피벗 테이블 분석 및 OLAP 큐브 설계</p>
       </div>
       
       <!-- Sub Tabs -->
       <nav class="sub-tabs">
+        <button 
+          class="sub-tab" 
+          :class="{ active: activeSubTab === 'analysis' }"
+          @click="activeSubTab = 'analysis'"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          피벗 테이블
+        </button>
         <button 
           class="sub-tab" 
           :class="{ active: activeSubTab === 'design' }"
@@ -83,19 +150,6 @@ async function deleteAllCubes() {
             <polyline points="2 12 12 17 22 12"/>
           </svg>
           큐브 설계
-        </button>
-        <button 
-          class="sub-tab" 
-          :class="{ active: activeSubTab === 'analysis' }"
-          @click="activeSubTab = 'analysis'"
-          :disabled="!store.hasCubes"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="20" x2="18" y2="10"/>
-            <line x1="12" y1="20" x2="12" y2="4"/>
-            <line x1="6" y1="20" x2="6" y2="14"/>
-          </svg>
-          피벗 분석
         </button>
       </nav>
       

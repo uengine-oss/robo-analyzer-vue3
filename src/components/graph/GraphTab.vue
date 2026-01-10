@@ -15,6 +15,7 @@ import SchemaView from '../text2sql/SchemaView.vue'
 import { getClassName, getDirectory, CLASS_LABELS } from '@/utils/classDiagram'
 import type { GraphNode, GraphLink } from '@/types'
 import { useResize } from '@/composables/useResize'
+import { useDrag } from '@/composables/useDrag'
 
 const projectStore = useProjectStore()
 const { 
@@ -25,8 +26,28 @@ const {
   consoleMessages,
   graphEvents,
   totalSteps,
-  completedSteps
+  completedSteps,
+  isPipelinePaused
 } = storeToRefs(projectStore)
+
+// 일시정지/재개 함수
+const { pausePipeline, resumePipeline } = projectStore
+
+// 진행 패널 드래그
+const { x: progressX, y: progressY, isDragging: isProgressDragging, startDrag: startProgressDrag } = useDrag({
+  initialX: 0,
+  initialY: 80,
+  boundToWindow: true
+})
+
+// 일시정지/재개 토글
+const togglePause = async () => {
+  if (isPipelinePaused.value) {
+    await resumePipeline()
+  } else {
+    await pausePipeline()
+  }
+}
 
 const MAX_SEARCH_RESULTS = 8
 
@@ -38,6 +59,72 @@ const showProgressPanel = ref(true) // 진행 패널 표시 (분석 중일 때)
 const progressPanelCollapsed = ref(false) // 진행 패널 축소 상태
 const labelFilters = ref<string[]>([]) // 레전드 필터 (노드 라벨)
 
+// 통합 패널 탭 (분석 / 콘솔 / 오버뷰)
+const analysisPanelTab = ref<'progress' | 'console' | 'overview'>('progress')
+
+// 분석 패널 모드: 'docked' (왼쪽 고정), 'floating' (플로팅), 'hidden' (완전 숨김)
+const analysisPanelMode = ref<'docked' | 'floating' | 'hidden'>('docked')
+
+// 인제스천 시작 시 그래프 뷰로 자동 전환 (분석 진행 상황을 볼 수 있도록)
+watch(isProcessing, (newVal, oldVal) => {
+  if (newVal && !oldVal) {
+    // 인제스천이 시작되면 그래프 뷰로 전환
+    activeView.value = 'graph'
+    // 분석 패널도 표시
+    if (analysisPanelMode.value === 'hidden') {
+      analysisPanelMode.value = 'docked'
+    }
+  }
+})
+
+// 플로팅 모드용 위치
+const floatingX = ref(20)
+const floatingY = ref(80)
+const isDraggingPanel = ref(false)
+const dragOffset = ref({ x: 0, y: 0 })
+
+// 플로팅 패널 드래그 시작
+const startPanelDrag = (e: MouseEvent) => {
+  if (analysisPanelMode.value !== 'floating') return
+  isDraggingPanel.value = true
+  dragOffset.value = {
+    x: e.clientX - floatingX.value,
+    y: e.clientY - floatingY.value
+  }
+  
+  const onMouseMove = (e: MouseEvent) => {
+    floatingX.value = e.clientX - dragOffset.value.x
+    floatingY.value = e.clientY - dragOffset.value.y
+  }
+  
+  const onMouseUp = () => {
+    isDraggingPanel.value = false
+    document.removeEventListener('mousemove', onMouseMove)
+    document.removeEventListener('mouseup', onMouseUp)
+  }
+  
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+}
+
+// 패널 모드 토글
+const togglePanelMode = () => {
+  if (analysisPanelMode.value === 'docked') {
+    analysisPanelMode.value = 'floating'
+  } else if (analysisPanelMode.value === 'floating') {
+    analysisPanelMode.value = 'docked'
+  }
+}
+
+// 패널 숨기기/보이기
+const togglePanelVisibility = () => {
+  if (analysisPanelMode.value === 'hidden') {
+    analysisPanelMode.value = 'docked'
+  } else {
+    analysisPanelMode.value = 'hidden'
+  }
+}
+
 // 진행 패널 리사이즈
 const { value: progressPanelWidth, isResizing: isProgressResizing, startResize: startProgressResize } = useResize({
   direction: 'horizontal',
@@ -47,12 +134,12 @@ const { value: progressPanelWidth, isResizing: isProgressResizing, startResize: 
   fromEnd: true
 })
 
-// 노드 패널 리사이즈
+// 노드 패널 리사이즈 (기본 폭 확대)
 const { value: panelWidth, isResizing: isPanelResizing, startResize: startPanelResize } = useResize({
   direction: 'horizontal',
-  initialValue: 300,
-  min: 200,
-  max: 600,
+  initialValue: 500,
+  min: 300,
+  max: 800,
   fromEnd: true
 })
 
@@ -171,8 +258,8 @@ function getNodeColor(nodeType: string): string {
     'CLASS': '#60a5fa',
     'METHOD': '#34d399',
     'INTERFACE': '#a78bfa',
-    'PROCEDURE': '#f472b6',
-    'FUNCTION': '#fbbf24',
+    'PROCEDURE': '#4ADE80',
+    'FUNCTION': '#22C55E',
     'Table': '#22d3ee',
     'Column': '#94a3b8',
     'UserStory': '#fb923c',
@@ -239,6 +326,23 @@ function handleNodeSelect(node: GraphNode | null): void {
   selectedNodeType.value = null
   stylePanelTop.value = 0
   if (node) showNodePanel.value = true
+}
+
+/**
+ * 검색 결과에서 노드 선택 시 처리 (해당 노드와 연결된 노드만 표시)
+ */
+function handleNodeSearchSelect(node: GraphNode): void {
+  // 노드 선택 처리
+  selectedNode.value = node
+  selectedRelationship.value = null
+  selectedNodeType.value = null
+  stylePanelTop.value = 0
+  showNodePanel.value = true
+  
+  // NvlGraph에서 해당 노드로 포커스 이동 (필터링 하지 않고 카메라만 이동)
+  if (nvlGraphRef.value) {
+    nvlGraphRef.value.focusOnNode?.(node.id)
+  }
 }
 
 function handleRelationshipSelect(relationship: GraphLink | null): void {
@@ -344,6 +448,21 @@ function handleClearFilters(): void {
   labelFilters.value = []
 }
 
+/**
+ * 전체 그래프 다시 로드 (필터 초기화)
+ */
+function handleResetGraph(): void {
+  // 선택 초기화
+  selectedNode.value = null
+  selectedRelationship.value = null
+  labelFilters.value = []
+  
+  // NvlGraph 리셋
+  if (nvlGraphRef.value) {
+    nvlGraphRef.value.resetGraph?.()
+  }
+}
+
 function handleNodeDelete(nodeId: string): void {
   // Store의 deleteNodeAndRelationships 메서드 사용
   projectStore.deleteNodeAndRelationships(nodeId)
@@ -368,6 +487,132 @@ watch(hasGraph, (has, prev) => {
 
 <template>
   <div class="graph-tab">
+    <!-- 패널 열기 버튼 (숨김 상태일 때) -->
+    <button 
+      v-if="activeView !== 'schema' && analysisPanelMode === 'hidden'"
+      class="panel-show-btn"
+      @click="togglePanelVisibility"
+      title="분석 패널 열기"
+    >
+      <span class="btn-icon">📊</span>
+      <span class="btn-label">분석</span>
+    </button>
+    
+    <!-- 왼쪽 통합 분석 패널 (Graph/UML 모드에서만 표시) -->
+    <div 
+      v-if="activeView !== 'schema' && analysisPanelMode !== 'hidden'"
+      class="analysis-panel"
+      :class="{ 
+        collapsed: progressPanelCollapsed, 
+        floating: analysisPanelMode === 'floating',
+        dragging: isDraggingPanel
+      }"
+      :style="analysisPanelMode === 'floating' 
+        ? { width: `${progressPanelWidth}px`, left: `${floatingX}px`, top: `${floatingY}px` }
+        : { width: progressPanelCollapsed ? '48px' : `${progressPanelWidth}px` }"
+    >
+      <!-- 리사이즈 핸들 -->
+      <div 
+        v-if="!progressPanelCollapsed"
+        class="panel-resize-handle"
+        :class="{ resizing: isProgressResizing }"
+        @mousedown="startProgressResize"
+      ></div>
+      
+      <!-- 축소 상태 (docked 모드에서만) -->
+      <div v-if="progressPanelCollapsed && analysisPanelMode === 'docked'" class="collapsed-content" @click="progressPanelCollapsed = false">
+        <div class="collapsed-indicator" :class="statusType">
+          <span class="spinner-mini" v-if="isProcessing"></span>
+          <span v-else>✓</span>
+        </div>
+        <span class="collapsed-label">분석</span>
+        <span class="collapsed-count">{{ consoleMessages.length }}</span>
+      </div>
+      
+      <!-- 확장 상태 -->
+      <template v-if="!progressPanelCollapsed || analysisPanelMode === 'floating'">
+        <!-- 헤더 (드래그 가능) -->
+        <div 
+          class="panel-header"
+          :class="{ draggable: analysisPanelMode === 'floating' }"
+          @mousedown="analysisPanelMode === 'floating' && startPanelDrag($event)"
+        >
+          <div class="header-title">
+            <span class="overview-icon">🔍</span>
+            <span>그래프 오버뷰</span>
+          </div>
+          <div class="header-actions">
+            <!-- 플로팅/고정 토글 -->
+            <button 
+              class="mode-btn" 
+              @click.stop="togglePanelMode" 
+              :title="analysisPanelMode === 'floating' ? '왼쪽에 고정' : '플로팅 모드'"
+            >
+              <span v-if="analysisPanelMode === 'floating'">📌</span>
+              <span v-else>🪟</span>
+            </button>
+            <!-- 완전 숨기기 -->
+            <button 
+              class="hide-btn" 
+              @click.stop="togglePanelVisibility" 
+              title="패널 숨기기"
+            >
+              ✕
+            </button>
+            <!-- 최소화 (docked 모드에서만) -->
+            <button 
+              v-if="analysisPanelMode === 'docked'"
+              class="collapse-btn" 
+              @click.stop="progressPanelCollapsed = true" 
+              title="최소화"
+            >
+              ‹
+            </button>
+          </div>
+        </div>
+        
+        <!-- 오버뷰 통계 헤더 -->
+        <div class="overview-stats-header">
+          <div class="stat-item">
+            <span class="stat-icon">📦</span>
+            <span class="stat-value">{{ graphStats.totalNodes }}</span>
+            <span class="stat-label">노드</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-icon">🔗</span>
+            <span class="stat-value">{{ graphStats.totalRels }}</span>
+            <span class="stat-label">관계</span>
+          </div>
+        </div>
+        
+        <!-- 오버뷰 내용 (노드 필터링 - 항상 표시) -->
+        <div class="tab-content overview-content">
+          <NodeDetailPanel 
+            :node="undefined"
+            :relationship="undefined"
+            :nodeStats="nvlGraphRef?.nodeStats"
+            :relationshipStats="nvlGraphRef?.relationshipStats"
+            :totalNodes="graphData?.nodes.length || 0"
+            :totalRelationships="graphData?.links.length || 0"
+            :displayedNodes="nvlGraphRef?.nodeCount?.() || graphData?.nodes.length || 0"
+            :displayedRelationships="displayedRelationshipsCount"
+            :hiddenNodes="nvlGraphRef?.hiddenNodeCount?.() ?? 0"
+            :isProcessing="isProcessing"
+            :isLimitApplied="nvlGraphRef?.isLimitApplied?.() ?? false"
+            :maxDisplayNodes="nodeLimit"
+            :activeFilters="labelFilters"
+            :allNodes="graphData?.nodes || []"
+            @node-type-select="handleNodeTypeSelect"
+            @style-updated="handleStyleUpdated"
+            @label-filter="handleLabelFilter"
+            @clear-filters="handleClearFilters"
+            @node-select="handleNodeSearchSelect"
+            @reset-graph="handleResetGraph"
+          />
+        </div>
+      </template>
+    </div>
+    
     <!-- 메인 콘텐츠 -->
     <div class="content-area">
       <div class="view-container" v-show="activeView === 'graph'">
@@ -411,9 +656,9 @@ watch(hasGraph, (has, prev) => {
         <SchemaView />
       </div>
       
-      <!-- 플로팅: 우측 패널 토글 -->
+      <!-- 플로팅: 우측 패널 토글 (그래프 뷰에서만) -->
       <button 
-        v-if="!showNodePanel"
+        v-if="!showNodePanel && activeView === 'graph'"
         class="panel-toggle right"
         @click="showNodePanel = !showNodePanel"
       >
@@ -485,10 +730,11 @@ watch(hasGraph, (has, prev) => {
     </div>
     
     <!-- 플로팅: 노드 패널 -->
+    <!-- 노드 상세 패널 (그래프 뷰에서만 표시) -->
     <Transition name="slide-right">
       <div 
         class="floating-panel right" 
-        v-if="showNodePanel" 
+        v-if="showNodePanel && activeView === 'graph'" 
         :style="{ width: `${panelWidth}px` }"
       >
         <div class="panel-header">
@@ -510,10 +756,13 @@ watch(hasGraph, (has, prev) => {
             :isLimitApplied="nvlGraphRef?.isLimitApplied?.() ?? false"
             :maxDisplayNodes="nodeLimit"
             :activeFilters="labelFilters"
+            :allNodes="graphData?.nodes || []"
             @node-type-select="handleNodeTypeSelect"
             @style-updated="handleStyleUpdated"
             @label-filter="handleLabelFilter"
             @clear-filters="handleClearFilters"
+            @node-select="handleNodeSearchSelect"
+            @reset-graph="handleResetGraph"
           />
         </div>
         <!-- 리사이즈 핸들 -->
@@ -537,156 +786,6 @@ watch(hasGraph, (has, prev) => {
             />
           </div>
         </Transition>
-      </div>
-    </Transition>
-    
-    <!-- 플로팅: 진행 패널 (분석 중일 때 표시) -->
-    <Transition name="slide-right">
-      <div 
-        v-if="isProcessing || (graphEvents.length > 0 && !isCompleted)"
-        class="floating-progress-panel"
-        :class="{ collapsed: progressPanelCollapsed }"
-        :style="{ width: progressPanelCollapsed ? '48px' : `${progressPanelWidth}px` }"
-      >
-        <!-- 리사이즈 핸들 -->
-        <div 
-          v-if="!progressPanelCollapsed"
-          class="progress-resize-handle"
-          :class="{ resizing: isProgressResizing }"
-          @mousedown="startProgressResize"
-        ></div>
-        
-        <!-- 축소 상태 -->
-        <div v-if="progressPanelCollapsed" class="collapsed-content" @click="progressPanelCollapsed = false">
-          <div class="collapsed-indicator" :class="statusType">
-            <span class="spinner-mini" v-if="isProcessing"></span>
-            <span v-else>✓</span>
-          </div>
-          <span class="collapsed-label">진행</span>
-          <span class="collapsed-count">{{ graphStats.totalNodes }}</span>
-        </div>
-        
-        <!-- 확장 상태 -->
-        <template v-else>
-          <div class="progress-header">
-            <div class="header-title">
-              <span class="status-indicator" :class="statusType">
-                <span class="spinner-mini" v-if="isProcessing"></span>
-              </span>
-              <span>분석 진행</span>
-            </div>
-            <button class="collapse-btn" @click="progressPanelCollapsed = true" title="최소화">
-              ›
-            </button>
-          </div>
-          
-          <!-- 진행바 -->
-          <div class="progress-bar-section">
-            <div class="progress-info">
-              <span class="step-label">{{ currentStep }}</span>
-              <span class="progress-percent">{{ progress }}%</span>
-            </div>
-            <div class="progress-track">
-              <div 
-                class="progress-fill"
-                :class="{ completed: isCompleted }"
-                :style="{ width: `${progress}%` }"
-              ></div>
-            </div>
-          </div>
-          
-          <!-- 통계 -->
-          <div class="stats-row">
-            <div class="stat-item">
-              <span class="stat-icon">📦</span>
-              <span class="stat-value">{{ graphStats.totalNodes }}</span>
-              <span class="stat-label">노드</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-icon">🔗</span>
-              <span class="stat-value">{{ graphStats.totalRels }}</span>
-              <span class="stat-label">관계</span>
-            </div>
-          </div>
-          
-          <!-- 이벤트 스트림 -->
-          <div class="event-stream">
-            <TransitionGroup name="event-item" tag="div" class="event-list">
-              <div 
-                v-for="event in recentEvents" 
-                :key="event.id"
-                class="event-item"
-                :class="event.type"
-              >
-                <template v-if="event.type === 'node'">
-                  <span 
-                    class="type-tag"
-                    :style="{ backgroundColor: getNodeColor(event.nodeType || '') + '25', color: getNodeColor(event.nodeType || '') }"
-                  >{{ event.nodeType }}</span>
-                  <span class="event-name">{{ event.nodeName }}</span>
-                </template>
-                <template v-else>
-                  <span class="rel-from">{{ event.source }}</span>
-                  <span 
-                    class="rel-tag"
-                    :style="{ color: getRelColor(event.relType || '') }"
-                  >→</span>
-                  <span class="rel-to">{{ event.target }}</span>
-                </template>
-              </div>
-            </TransitionGroup>
-            
-            <div v-if="!graphEvents.length" class="event-empty">
-              <span class="spinner-mini"></span>
-              <span>대기 중...</span>
-            </div>
-          </div>
-        </template>
-      </div>
-    </Transition>
-    
-    <!-- 플로팅: 콘솔 토글 버튼 (콘솔이 닫혔을 때만 표시) -->
-    <button 
-      v-if="!showConsole"
-      class="console-toggle-btn"
-      :class="[statusType]"
-      @click="showConsole = !showConsole"
-    >
-      <span class="status-dot"></span>
-      콘솔
-      <span class="count" v-if="consoleMessages.length">{{ consoleMessages.length }}</span>
-    </button>
-    
-    <Transition name="slide-up">
-      <div class="floating-console" v-if="showConsole" :style="{ height: `${consoleHeight}px` }">
-        <div class="console-header">
-          <span>콘솔</span>
-          <span class="console-count" v-if="consoleMessages.length">{{ consoleMessages.length }}</span>
-        </div>
-        <!-- 리사이즈 핸들 -->
-        <div 
-          class="console-resize-handle"
-          :class="{ resizing: isConsoleResizing }"
-          @mousedown="startConsoleResize"
-        ></div>
-        <div class="console-content">
-          <div 
-            v-for="(msg, idx) in consoleMessages" 
-            :key="idx"
-            class="log-item"
-            :class="msg.type"
-          >
-            <span class="time">{{ formatTime(msg.timestamp) }}</span>
-            <span class="text">{{ msg.content }}</span>
-          </div>
-          <div class="log-empty" v-if="consoleMessages.length === 0">
-            로그가 없습니다
-          </div>
-        </div>
-        <!-- 콘솔 닫기 버튼 (하단 중앙) -->
-        <button class="console-close-btn-bottom" @click="showConsole = false">
-          <span class="arrow">▼</span>
-        </button>
       </div>
     </Transition>
     
@@ -1226,21 +1325,47 @@ watch(hasGraph, (has, prev) => {
 }
 
 // ============================================================================
-// 플로팅 진행 패널
+// 왼쪽 통합 분석 패널
 // ============================================================================
 
-.floating-progress-panel {
+// 패널 열기 버튼 (숨김 상태일 때)
+.panel-show-btn {
   position: absolute;
-  top: 50px;
-  right: 10px;
-  bottom: 50px;
+  left: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: var(--color-bg-tertiary);
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .btn-icon {
+    font-size: 14px;
+  }
+}
+
+.analysis-panel {
+  position: relative;
+  height: 100%;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
-  z-index: 95;
+  flex-shrink: 0;
   overflow: hidden;
   transition: width 0.2s ease;
   
@@ -1252,14 +1377,211 @@ watch(hasGraph, (has, prev) => {
     }
   }
   
-  .progress-resize-handle {
+  // 플로팅 모드
+  &.floating {
     position: absolute;
-    left: 0;
+    left: 20px;
+    top: 80px;
+    height: auto;
+    max-height: calc(100% - 100px);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 200;
+    
+    &.dragging {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      opacity: 0.95;
+    }
+    
+    .panel-header {
+      cursor: grab;
+      
+      &:active {
+        cursor: grabbing;
+      }
+    }
+  }
+  
+  .panel-resize-handle {
+    position: absolute;
+    right: 0;
     top: 0;
     bottom: 0;
     width: 4px;
     cursor: col-resize;
     @include resize-handle-base;
+  }
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  
+  &.draggable {
+    cursor: grab;
+    user-select: none;
+    
+    &:active {
+      cursor: grabbing;
+    }
+  }
+}
+
+.mode-btn,
+.hide-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-light);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: var(--color-bg);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+}
+
+.hide-btn {
+  &:hover {
+    border-color: var(--color-error);
+    color: var(--color-error);
+  }
+}
+
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-light);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: var(--color-bg-tertiary);
+    color: var(--color-text);
+  }
+  
+  &.active {
+    color: var(--color-accent);
+    border-bottom-color: var(--color-accent);
+    background: rgba(34, 139, 230, 0.08);
+  }
+  
+  .tab-icon {
+    font-size: 14px;
+  }
+  
+  .tab-badge {
+    background: var(--color-accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 18px;
+  }
+}
+
+.tab-content {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.progress-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.console-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.overview-content {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  
+  :deep(.node-detail-panel) {
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+.console-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  
+  .log-item {
+    display: flex;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 2px;
+    
+    &:hover {
+      background: var(--color-bg-tertiary);
+    }
+    
+    &.error {
+      color: var(--color-error);
+      background: rgba(250, 82, 82, 0.1);
+    }
+    
+    &.graph {
+      color: var(--color-accent);
+    }
+    
+    .time {
+      color: var(--color-text-muted);
+      flex-shrink: 0;
+    }
+    
+    .text {
+      color: var(--color-text);
+      word-break: break-all;
+    }
+  }
+  
+  .log-empty {
+    padding: 20px;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-style: italic;
   }
 }
 
@@ -1317,11 +1639,40 @@ watch(hasGraph, (has, prev) => {
 .progress-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 10px;
   background: var(--color-bg-tertiary);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  
+  &.draggable {
+    cursor: grab;
+    user-select: none;
+    
+    &:active {
+      cursor: grabbing;
+    }
+  }
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  letter-spacing: -2px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  
+  &:hover {
+    opacity: 1;
+    color: var(--color-text-light);
+  }
+  
+  .drag-dots {
+    line-height: 1;
+  }
 }
 
 .header-title {
@@ -1331,6 +1682,49 @@ watch(hasGraph, (has, prev) => {
   font-size: 12px;
   font-weight: 600;
   color: var(--color-text-bright);
+  flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pause-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-light);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  
+  &:hover {
+    background: var(--color-bg);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+  
+  &.paused {
+    background: rgba(var(--accent-rgb), 0.15);
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    
+    &:hover {
+      background: rgba(var(--accent-rgb), 0.25);
+    }
+  }
+}
+
+.paused-icon {
+  font-size: 10px;
+  color: var(--color-warning);
 }
 
 .status-indicator {
@@ -1392,6 +1786,10 @@ watch(hasGraph, (has, prev) => {
   padding: 12px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  
+  &.paused {
+    background: rgba(245, 158, 11, 0.08);
+  }
 }
 
 .progress-info {
@@ -1432,15 +1830,30 @@ watch(hasGraph, (has, prev) => {
   &.completed {
     background: linear-gradient(90deg, var(--color-success) 0%, #4ade80 100%);
   }
+  
+  &.paused {
+    background: linear-gradient(90deg, var(--color-warning) 0%, #f59e0b 100%);
+    animation: pulse-glow 1.5s ease-in-out infinite;
+  }
 }
 
-.stats-row {
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.stats-row,
+.overview-stats-header {
   display: flex;
   gap: 16px;
   padding: 10px 12px;
   background: var(--color-bg-tertiary);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+}
+
+.overview-icon {
+  margin-right: 4px;
 }
 
 .stat-item {

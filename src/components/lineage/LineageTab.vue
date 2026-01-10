@@ -2,6 +2,10 @@
 /**
  * LineageTab.vue
  * 데이터 리니지 시각화 탭 - ETL 데이터 흐름을 그래프로 표시
+ * 
+ * 데이터 소스:
+ * 1. robo-analyzer의 Neo4j 리니지 데이터
+ * 2. data-platform-olap의 ETL 설정 데이터
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useProjectStore } from '@/stores/project'
@@ -11,10 +15,14 @@ import LineageGraph from './LineageGraph.vue'
 import LineageDetailPanel from './LineageDetailPanel.vue'
 import { IconRefresh, IconUpload, IconSearch } from '@/components/icons'
 
+// API Gateway URL for OLAP service
+const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? 'http://localhost:9000'
+const OLAP_API_BASE = `${API_GATEWAY_URL}/olap/api`
+
 // 스토어
 const projectStore = useProjectStore()
 const sessionStore = useSessionStore()
-const { currentProject } = storeToRefs(projectStore)
+const { projectName } = storeToRefs(projectStore)
 
 // 상태
 const isLoading = ref(false)
@@ -34,20 +42,9 @@ const lineageData = ref<LineageGraphData>({
   }
 })
 
-// Mock 데이터 통계 (실제 데이터가 없을 때 사용)
-const mockStats = {
-  etlCount: 2,
-  sourceCount: 4,
-  targetCount: 3,
-  flowCount: 9
-}
-
-// 표시할 통계 (실제 데이터 또는 Mock)
+// 표시할 통계 (실제 데이터)
 const displayStats = computed(() => {
-  if (lineageData.value.nodes.length > 0) {
-    return lineageData.value.stats
-  }
-  return mockStats
+  return lineageData.value.stats
 })
 
 // 타입 정의
@@ -86,33 +83,145 @@ const filteredNodes = computed(() => {
   )
 })
 
-// 리니지 데이터 로드
+// 데이터 없음 여부
+const hasNoData = computed(() => {
+  return lineageData.value.nodes.length === 0 && !isLoading.value
+})
+
+// 리니지 데이터 로드 - Neo4j와 OLAP ETL 설정 모두에서 가져옴
 async function loadLineageData() {
-  if (!currentProject.value?.name) {
-    lineageData.value = { nodes: [], edges: [], stats: { etlCount: 0, sourceCount: 0, targetCount: 0, flowCount: 0 } }
-    return
-  }
-  
   isLoading.value = true
   error.value = null
   
+  const allNodes: LineageNode[] = []
+  const allEdges: LineageEdge[] = []
+  let totalStats = { etlCount: 0, sourceCount: 0, targetCount: 0, flowCount: 0 }
+  
   try {
-    const headers = sessionStore.getHeaders()
-    const response = await fetch(
-      `/robo/lineage/?projectName=${encodeURIComponent(currentProject.value.name)}`,
-      { headers }
-    )
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+    // 1. OLAP ETL 설정에서 리니지 데이터 가져오기
+    try {
+      const olapResponse = await fetch(`${OLAP_API_BASE}/etl/lineage/overview`)
+      if (olapResponse.ok) {
+        const olapData = await olapResponse.json()
+        
+        // 소스 테이블 변환
+        for (const src of olapData.source_tables || []) {
+          allNodes.push({
+            id: src.id,
+            name: src.name,
+            type: 'SOURCE',
+            properties: { 
+              columns: src.columns, 
+              schema: src.schema || 'public'
+            }
+          })
+        }
+        
+        // ETL 프로세스 변환
+        for (const etl of olapData.etl_processes || []) {
+          allNodes.push({
+            id: etl.id,
+            name: etl.name,
+            type: 'ETL',
+            properties: {
+              operation: etl.operation,
+              cube_name: etl.cube_name,
+              sync_mode: etl.sync_mode,
+              mappings_count: etl.mappings_count
+            }
+          })
+        }
+        
+        // 타겟 테이블 변환
+        for (const tgt of olapData.target_tables || []) {
+          allNodes.push({
+            id: tgt.id,
+            name: tgt.name,
+            type: 'TARGET',
+            properties: {
+              columns: tgt.columns,
+              schema: tgt.schema,
+              table_type: tgt.type,
+              cube_name: tgt.cube_name
+            }
+          })
+        }
+        
+        // 데이터 흐름 변환
+        for (const flow of olapData.data_flows || []) {
+          allEdges.push({
+            id: `flow_${flow.from}_${flow.to}`,
+            source: flow.from,
+            target: flow.to,
+            type: flow.type === 'extract' ? 'DATA_FLOW_TO' : 'TRANSFORMS_TO',
+            properties: { flowType: flow.type }
+          })
+        }
+        
+        // 통계 업데이트
+        if (olapData.summary) {
+          totalStats.etlCount += olapData.summary.total_etl_processes || 0
+          totalStats.sourceCount += olapData.summary.total_sources || 0
+          totalStats.targetCount += olapData.summary.total_targets || 0
+          totalStats.flowCount += olapData.summary.total_flows || 0
+        }
+      }
+    } catch (olapErr) {
+      console.warn('OLAP 리니지 데이터 로드 실패 (무시됨):', olapErr)
     }
     
-    const data = await response.json()
+    // 2. Neo4j 리니지 데이터 가져오기 (프로젝트가 선택된 경우)
+    if (projectName.value) {
+      try {
+        const headers = sessionStore.getHeaders()
+        const response = await fetch(
+          `/robo/lineage/?projectName=${encodeURIComponent(projectName.value)}`,
+          { headers }
+        )
+        
+        if (response.ok) {
+          const data = await response.json()
+          
+          // 중복 제거하면서 노드 추가
+          for (const node of data.nodes || []) {
+            if (!allNodes.find(n => n.id === node.id || n.name === node.name)) {
+              allNodes.push(node)
+            }
+          }
+          
+          // 엣지 추가
+          for (const edge of data.edges || []) {
+            if (!allEdges.find(e => e.id === edge.id)) {
+              allEdges.push(edge)
+            }
+          }
+          
+          // 통계 업데이트
+          if (data.stats) {
+            totalStats.etlCount += data.stats.etlCount || 0
+            totalStats.sourceCount += data.stats.sourceCount || 0
+            totalStats.targetCount += data.stats.targetCount || 0
+            totalStats.flowCount += data.stats.flowCount || 0
+          }
+        }
+      } catch (neo4jErr) {
+        console.warn('Neo4j 리니지 데이터 로드 실패 (무시됨):', neo4jErr)
+      }
+    }
+    
+    // 데이터 설정
     lineageData.value = {
-      nodes: data.nodes || [],
-      edges: data.edges || [],
-      stats: data.stats || { etlCount: 0, sourceCount: 0, targetCount: 0, flowCount: 0 }
+      nodes: allNodes,
+      edges: allEdges,
+      stats: totalStats
     }
+    
+    console.log('리니지 데이터 로드 완료:', {
+      nodes: allNodes.length,
+      edges: allEdges.length,
+      stats: totalStats
+    })
+    
   } catch (e) {
     error.value = e instanceof Error ? e.message : '데이터 로드 실패'
     console.error('리니지 데이터 로드 실패:', e)
@@ -123,7 +232,7 @@ async function loadLineageData() {
 
 // ETL 코드 분석
 async function analyzeEtlCode(sqlContent: string, fileName: string = '') {
-  if (!currentProject.value?.name || !sqlContent.trim()) return
+  if (!projectName.value || !sqlContent.trim()) return
   
   isLoading.value = true
   error.value = null
@@ -137,7 +246,7 @@ async function analyzeEtlCode(sqlContent: string, fileName: string = '') {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        projectName: currentProject.value.name,
+        projectName: projectName.value,
         sqlContent,
         fileName,
         dbms: 'oracle'
@@ -165,7 +274,7 @@ function handleNodeSelect(node: LineageNode | null) {
 }
 
 // 프로젝트 변경 시 데이터 로드
-watch(currentProject, () => {
+watch(projectName, () => {
   loadLineageData()
 }, { immediate: true })
 
@@ -200,8 +309,8 @@ async function handleFileUpload(event: Event) {
           <span class="title-icon">🔀</span>
           데이터 리니지
         </h2>
-        <span class="project-badge" v-if="currentProject?.name">
-          {{ currentProject.name }}
+        <span class="project-badge" v-if="projectName">
+          {{ projectName }}
         </span>
       </div>
       
@@ -267,25 +376,39 @@ async function handleFileUpload(event: Event) {
         <button @click="loadLineageData" class="retry-btn">다시 시도</button>
       </div>
       
-      <!-- 그래프 뷰 (Mock 데이터 또는 실제 데이터) -->
+      <!-- 그래프 뷰 -->
       <template v-if="!error">
-        <div class="graph-container">
-          <LineageGraph
-            :nodes="filteredNodes"
-            :edges="lineageData.edges"
-            :is-loading="isLoading"
-            @node-select="handleNodeSelect"
-          />
+        <!-- 데이터 없음 상태 -->
+        <div v-if="hasNoData" class="empty-state">
+          <div class="empty-icon">🔗</div>
+          <h3>데이터 리니지 없음</h3>
+          <p>ETL 설정을 생성하면 데이터 리니지가 표시됩니다.<br/>큐브 모델러에서 ETL을 설계하거나, ETL 파일을 업로드하세요.</p>
+          <button class="upload-cta" @click="triggerFileUpload">
+            <IconUpload :size="18" />
+            <span>ETL 파일 업로드</span>
+          </button>
         </div>
         
-        <!-- 상세 패널 -->
-        <LineageDetailPanel
-          v-if="selectedNode"
-          :node="selectedNode"
-          :edges="lineageData.edges"
-          :all-nodes="lineageData.nodes"
-          @close="selectedNode = null"
-        />
+        <!-- 그래프 표시 -->
+        <template v-else>
+          <div class="graph-container">
+            <LineageGraph
+              :nodes="filteredNodes"
+              :edges="lineageData.edges"
+              :is-loading="isLoading"
+              @node-select="handleNodeSelect"
+            />
+          </div>
+          
+          <!-- 상세 패널 -->
+          <LineageDetailPanel
+            v-if="selectedNode"
+            :node="selectedNode"
+            :edges="lineageData.edges"
+            :all-nodes="lineageData.nodes"
+            @close="selectedNode = null"
+          />
+        </template>
       </template>
     </div>
   </div>

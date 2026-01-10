@@ -10,6 +10,10 @@ const store = useSchemaCanvasStore()
 const isEditingDescription = ref(false)
 const editingColumnName = ref<string | null>(null)
 
+// 실시간 업데이트 애니메이션 상태
+const isTableUpdating = ref(false)
+const updatingColumnNames = ref<Set<string>>(new Set())
+
 // Edit forms
 const tableDescForm = reactive({
   description: ''
@@ -57,6 +61,43 @@ watch(() => store.selectedTable, (newTable) => {
   isEditingDescription.value = false
   editingColumnName.value = null
 })
+
+// 테이블 업데이트 감지 (실시간 애니메이션)
+watch(
+  () => {
+    if (!table.value) return null
+    const nodeId = `table-${table.value.name}`
+    return store.updatedNodes.get(nodeId)
+  },
+  (newVal) => {
+    if (newVal) {
+      isTableUpdating.value = true
+      setTimeout(() => {
+        isTableUpdating.value = false
+      }, 3000)
+    }
+  },
+  { immediate: true }
+)
+
+// 컬럼 업데이트 감지 (실시간 애니메이션)
+watch(
+  () => Array.from(store.updatedColumns.entries()),
+  (entries) => {
+    if (!table.value) return
+    const tableName = table.value.name
+    for (const [key, _] of entries) {
+      if (key.startsWith(`${tableName}:`)) {
+        const colName = key.split(':')[1]
+        updatingColumnNames.value.add(colName)
+        setTimeout(() => {
+          updatingColumnNames.value.delete(colName)
+        }, 3000)
+      }
+    }
+  },
+  { deep: true }
+)
 
 watch(() => newRelationship.to_table, async (tableName) => {
   if (tableName && !store.tableColumnsCache[tableName]) {
@@ -155,6 +196,11 @@ function getColumnIcon(col: Text2SqlColumnInfo): string {
   if (col.name.endsWith('_id')) return '🔗'
   return '📝'
 }
+
+// 컬럼이 업데이트 중인지 확인
+function isColumnUpdating(colName: string): boolean {
+  return updatingColumnNames.value.has(colName)
+}
 </script>
 
 <template>
@@ -178,14 +224,15 @@ function getColumnIcon(col: Text2SqlColumnInfo): string {
       <!-- Content -->
       <div class="detail-panel__content">
         <!-- Table Info Section -->
-        <section class="detail-section">
+        <section class="detail-section" :class="{ 'is-updating': isTableUpdating }">
           <div class="detail-section__header">
             <h3>테이블 정보</h3>
             <span class="detail-section__badge">{{ table.schema || 'public' }}</span>
+            <span v-if="isTableUpdating" class="detail-section__update-badge">✨ 업데이트</span>
           </div>
           
           <!-- Description -->
-          <div class="detail-field">
+          <div class="detail-field" :class="{ 'is-updating': isTableUpdating }">
             <label>설명</label>
             <div v-if="isEditingDescription" class="detail-field__edit">
               <textarea 
@@ -219,7 +266,8 @@ function getColumnIcon(col: Text2SqlColumnInfo): string {
               class="column-item"
               :class="{ 
                 'is-pk': col.name.toLowerCase() === 'id',
-                'is-fk': col.name.endsWith('_id') && col.name.toLowerCase() !== 'id'
+                'is-fk': col.name.endsWith('_id') && col.name.toLowerCase() !== 'id',
+                'is-updating': isColumnUpdating(col.name)
               }"
             >
               <div class="column-item__header">
@@ -711,6 +759,100 @@ function getColumnIcon(col: Text2SqlColumnInfo): string {
   color: var(--color-text-muted);
   font-size: 0.85rem;
   font-style: italic;
+}
+
+/* =========================================
+   실시간 업데이트 애니메이션
+   ========================================= */
+
+/* 섹션 업데이트 */
+.detail-section.is-updating {
+  animation: section-pulse 0.5s ease-in-out 3;
+}
+
+@keyframes section-pulse {
+  0%, 100% { background: transparent; }
+  50% { background: rgba(81, 207, 102, 0.1); }
+}
+
+/* 업데이트 배지 */
+.detail-section__update-badge {
+  font-size: 0.65rem;
+  background: linear-gradient(135deg, #51cf66, #40c057);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: auto;
+  animation: badge-pop 0.4s ease-out;
+}
+
+@keyframes badge-pop {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 필드 업데이트 */
+.detail-field.is-updating .detail-field__display {
+  background: rgba(81, 207, 102, 0.2);
+  border-color: #51cf66;
+  animation: field-highlight 0.5s ease-in-out 3;
+}
+
+@keyframes field-highlight {
+  0%, 100% { border-color: #51cf66; }
+  50% { border-color: #40c057; box-shadow: 0 0 8px rgba(81, 207, 102, 0.5); }
+}
+
+/* 컬럼 업데이트 */
+.column-item.is-updating {
+  background: rgba(81, 207, 102, 0.15) !important;
+  border-color: #51cf66 !important;
+  animation: column-update 0.5s ease-in-out 3;
+}
+
+.column-item.is-updating .column-item__desc {
+  background: rgba(81, 207, 102, 0.3);
+  color: #51cf66;
+}
+
+.column-item.is-updating::before {
+  content: '✨';
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  animation: sparkle 0.8s ease-in-out infinite;
+}
+
+@keyframes column-update {
+  0%, 100% { 
+    background: rgba(81, 207, 102, 0.15);
+    transform: translateX(0);
+  }
+  25% { transform: translateX(2px); }
+  50% { 
+    background: rgba(81, 207, 102, 0.3);
+    transform: translateX(-2px);
+  }
+  75% { transform: translateX(1px); }
+}
+
+@keyframes sparkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.2); }
+}
+
+/* 컬럼 아이템 position 추가 */
+.column-item {
+  position: relative;
 }
 </style>
 

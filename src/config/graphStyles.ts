@@ -14,46 +14,93 @@
 
 /**
  * 노드 타입별 색상
- * Neo4j Browser 스타일 참고 - 차분한 톤
+ * 
+ * 색상 분류:
+ * - SQL 액션 (노란색/금색 계열): SELECT, INSERT, UPDATE, DELETE, MERGE
+ * - 제어문/스테이트먼트 (하늘색 계열): IF, TRY, LOOP, CALL 등
+ * - 테이블/컬럼 (핑크색 계열): Table, Column
+ * - 프로시저/함수 (보라색 계열): PROCEDURE, FUNCTION
  */
 export const NODE_COLORS: Record<string, string> = {
   // 시스템/파일 구조
   SYSTEM: '#4A82CA',
   FILE: '#50B5D3',
   
-  // SQL 문 타입
-  SELECT: '#EB8A5A',
-  INSERT: '#7AC288',
-  UPDATE: '#E0A7B8',
-  DELETE: '#F0B448',
-  MERGE: '#CF6888',
+  // ========================================
+  // SQL 액션 스테이트먼트 (노란색/금색 계열)
+  // ========================================
+  SELECT: '#F5B041',      // 밝은 금색
+  INSERT: '#F4D03F',      // 노란색
+  UPDATE: '#F39C12',      // 진한 금색
+  DELETE: '#E67E22',      // 오렌지-금색
+  MERGE: '#F5B041',       // 밝은 금색
   
-  // 프로시저/함수
-  PROCEDURE: '#B888B0',
-  FUNCTION: '#8E50AC',
+  // ========================================
+  // 프로시저/함수 (밝은 녹색 계열)
+  // ========================================
+  PROCEDURE: '#4ADE80',   // 밝은 녹색
+  FUNCTION: '#22C55E',    // 녹색
   
-  // 제어문
-  IF: '#4E8775',
-  ELSE: '#4E8775',
-  ELSEIF: '#4E8775',
-  CASE: '#4E8775',
-  WHEN: '#4E8775',
+  // ========================================
+  // 제어문/스테이트먼트 (하늘색 계열)
+  // ========================================
+  // 조건문
+  IF: '#5DADE2',          // 하늘색
+  ELSE: '#5DADE2',
+  ELSIF: '#5DADE2',
+  ELSEIF: '#5DADE2',
+  CASE: '#5DADE2',
+  WHEN: '#5DADE2',
   
   // 반복문
-  WHILE: '#CFBEA0',
-  LOOP: '#CFBEA0',
-  FOR: '#CFBEA0',
+  WHILE: '#85C1E9',       // 밝은 하늘색
+  LOOP: '#85C1E9',
+  FOR: '#85C1E9',
+  EXIT: '#85C1E9',
+  CONTINUE: '#85C1E9',
+  
+  // 예외 처리
+  TRY: '#7FB3D5',         // 연한 하늘색
+  EXCEPTION: '#7FB3D5',
+  RAISE: '#7FB3D5',
+  
+  // 트랜잭션/호출
+  COMMIT: '#AED6F1',      // 매우 연한 하늘색
+  CALL: '#AED6F1',
+  EXECUTE: '#AED6F1',
   
   // 변수/선언
-  DECLARE: '#62C290',
+  DECLARE: '#85C1E9',
+  ASSIGNMENT: '#85C1E9',
   Variable: '#98A0A8',
   
-  // 테이블/컬럼
+  // 커서 관련
+  CURSOR: '#7FB3D5',
+  CURSOR_VARIABLE: '#7FB3D5',
+  OPEN_CURSOR: '#7FB3D5',
+  CLOSE_CURSOR: '#7FB3D5',
+  FETCH: '#7FB3D5',
+  OPEN: '#7FB3D5',
+  CLOSE: '#7FB3D5',
+  
+  // 기타 스테이트먼트
+  UNION_ALL: '#85C1E9',
+  RETURN: '#5DADE2',
+  SPEC: '#AED6F1',
+  BEGIN: '#85C1E9',
+  NOTICE: '#AED6F1',
+  
+  // ========================================
+  // 테이블/컬럼 (핑크색 계열 - 기존 유지)
+  // ========================================
   Table: '#E35A5C',
   Column: '#F088A2',
   CREATE_TEMP_TABLE: '#E88400',
+  Schema: '#D35A5A',      // 스키마도 핑크 계열
   
+  // ========================================
   // 클래스/인터페이스 (Java/Python)
+  // ========================================
   CLASS: '#3B82F6',
   Class: '#3B82F6',
   INTERFACE: '#8B5CF6',
@@ -61,23 +108,27 @@ export const NODE_COLORS: Record<string, string> = {
   METHOD: '#10B981',
   Method: '#10B981',
   
-  // 기타 SQL
+  // 기타
   DBLink: '#7D4A15',
-  CURSOR: '#1DA6A0',
-  EXCEPTION: '#D02038',
-  EXECUTE: '#3A60D2',
-  OPEN: '#2DB82D',
-  CLOSE: '#F05840',
-  FETCH: '#8668CD',
-  RETURN: '#2A8050',
-  RAISE: '#A82020',
+  JOIN: '#85C1E9',
   
-  // 추가 노드 타입
-  BEGIN: '#4A82CA',
-  CONTINUE: '#62C290',
-  NOTICE: '#F0B448',
-  ASSIGNMENT: '#7090CC',
-  SPEC: '#98A0A8',
+  // ========================================
+  // 트리거 (주황색 계열)
+  // ========================================
+  TRIGGER: '#FB923C',
+  TRIGGER_BLOCK: '#FDBA74',
+  
+  // ========================================
+  // 프로젝트/사용자 스토리 (청록색 계열)
+  // ========================================
+  Project: '#06B6D4',
+  UserStory: '#22D3EE',
+  AcceptanceCriteria: '#67E8F9',
+  
+  // ========================================
+  // 변수 (회색 계열)
+  // ========================================
+  Variable: '#94A3B8',
   
   // 기본값
   DEFAULT: '#5AA0E0'
@@ -104,6 +155,10 @@ export const RELATIONSHIP_COLORS: Record<string, string> = {
   SCOPE: '#9CA3AB',
   EXTENDS: '#9CA3AB',
   IMPLEMENTS: '#9CA3AB',
+  BELONGS_TO: '#9CA3AB',
+  DECLARES: '#9CA3AB',
+  HAS_AC: '#9CA3AB',
+  HAS_USER_STORY: '#9CA3AB',
   DEFAULT: '#9CA3AB'
 }
 
