@@ -6,6 +6,8 @@
 
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useProjectStore } from '@/stores/project'
+import { useSessionStore } from '@/stores/session'
+import { useSchemaCanvasStore } from '@/stores/schemaCanvas'
 import { storeToRefs } from 'pinia'
 import NvlGraph from './NvlGraph.vue'
 import NodeDetailPanel from './NodeDetailPanel.vue'
@@ -18,6 +20,8 @@ import { useResize } from '@/composables/useResize'
 import { useDrag } from '@/composables/useDrag'
 
 const projectStore = useProjectStore()
+const sessionStore = useSessionStore()
+const schemaCanvasStore = useSchemaCanvasStore()
 const { 
   graphData, 
   isProcessing, 
@@ -63,7 +67,8 @@ const labelFilters = ref<string[]>([]) // 레전드 필터 (노드 라벨)
 const analysisPanelTab = ref<'progress' | 'console' | 'overview'>('progress')
 
 // 분석 패널 모드: 'docked' (왼쪽 고정), 'floating' (플로팅), 'hidden' (완전 숨김)
-const analysisPanelMode = ref<'docked' | 'floating' | 'hidden'>('docked')
+// 기본값은 hidden - 인제스천 시작 시에만 자동으로 표시됨
+const analysisPanelMode = ref<'docked' | 'floating' | 'hidden'>('hidden')
 
 // 인제스천 시작 시 그래프 뷰로 자동 전환 (분석 진행 상황을 볼 수 있도록)
 watch(isProcessing, (newVal, oldVal) => {
@@ -195,6 +200,15 @@ function handleNodeLimitChange(event: Event) {
 onMounted(() => {
   window.addEventListener('umlDepthChange', handleUmlDepthChange)
   window.addEventListener('nodeLimitChange', handleNodeLimitChange)
+  
+  // 상단 검색에서 전달된 스키마 검색어 처리
+  const pendingQuery = sessionStore.consumeSchemaSearch()
+  if (pendingQuery) {
+    activeView.value = 'schema'
+    schemaCanvasStore.searchQuery = pendingQuery
+    // 시멘틱 검색도 트리거
+    schemaCanvasStore.performSemanticSearch(pendingQuery)
+  }
 })
 
 onUnmounted(() => {
@@ -814,7 +828,7 @@ watch(hasGraph, (has, prev) => {
 .view-container {
   position: absolute;
   inset: 0;
-  background: #1e1e2e;
+  background: var(--color-canvas-bg);
   overflow: visible;
 }
 

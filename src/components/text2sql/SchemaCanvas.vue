@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, provide, computed, markRaw } from 'vue'
+import { ref, onMounted, provide, computed, markRaw, watch, nextTick } from 'vue'
 import { VueFlow, useVueFlow, type Connection, type NodeChange } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -15,6 +15,81 @@ const store = useSchemaCanvasStore()
 const isDragOver = ref(false)
 const searchQuery = ref('')
 const isConnecting = ref(false)
+
+// 소스 코드 패널 refs
+const sourceCodeContentRef = ref<HTMLElement | null>(null)
+
+// 하이라이트된 라인으로 스크롤하는 함수
+function scrollToHighlightedLine() {
+  const lineNumber = store.sourceCodePanel.highlightedLine
+  if (!lineNumber || !sourceCodeContentRef.value) return
+  
+  const lineElement = sourceCodeContentRef.value.querySelector(`[data-line="${lineNumber}"]`)
+  if (lineElement) {
+    lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    console.log('[scrollToHighlightedLine] 스크롤 완료:', lineNumber)
+  } else {
+    console.warn('[scrollToHighlightedLine] 라인 엘리먼트를 찾을 수 없음:', lineNumber)
+  }
+}
+
+// 소스 코드 패널이 열리거나 하이라이트 라인이 변경되면 스크롤
+watch(
+  () => [store.sourceCodePanel.isOpen, store.sourceCodePanel.highlightedLine],
+  ([isOpen, lineNumber]) => {
+    if (isOpen && lineNumber) {
+      // DOM 렌더링 완료 후 스크롤 (약간의 딜레이 필요)
+      nextTick(() => {
+        setTimeout(() => {
+          scrollToHighlightedLine()
+        }, 200)
+      })
+    }
+  },
+  { immediate: true }
+)
+
+// Statement 로딩 완료 후에도 스크롤 재조정 (AI 설명이 추가되면 위치가 바뀔 수 있음)
+watch(
+  () => store.sourceCodePanel.isLoadingStatements,
+  (isLoading, wasLoading) => {
+    if (wasLoading && !isLoading && store.sourceCodePanel.isOpen) {
+      // 로딩 완료 후 스크롤 재조정
+      nextTick(() => {
+        setTimeout(() => {
+          scrollToHighlightedLine()
+        }, 100)
+      })
+    }
+  }
+)
+
+// 라인에 해당하는 statement 설명 찾기
+function getStatementForLine(lineNumber: number) {
+  const statements = store.sourceCodePanel.statements
+  if (!statements || statements.length === 0) return null
+  
+  // 해당 라인이 시작 라인인 statement 찾기
+  const statement = statements.find(s => s.start_line === lineNumber)
+  if (statement && (statement.summary || statement.ai_description)) {
+    return statement
+  }
+  return null
+}
+
+// 데이터 셀 포맷팅
+function formatCell(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'number') {
+    return value.toLocaleString()
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  const str = String(value)
+  // 너무 긴 문자열은 자르기
+  return str.length > 100 ? str.substring(0, 100) + '...' : str
+}
 
 // 스키마 폴더 확장 상태
 const expandedSchemas = ref<Record<string, boolean>>({
@@ -91,6 +166,13 @@ provide('onLoadRelated', async (tableName: string) => {
 onMounted(async () => {
   await store.loadAllTables()
   await store.loadUserRelationships()
+  
+  // 초기 로드 후 엣지 업데이트 (캔버스에 테이블이 이미 있는 경우)
+  if (store.nodes.length > 0) {
+    setTimeout(() => {
+      store.updateEdgesFromRelationships()
+    }, 500)
+  }
 })
 
 // Handlers
@@ -856,6 +938,51 @@ async function handleRefresh() {
     <!-- Right Panel: Table Details -->
     <TableDetailPanel />
     
+    <!-- Right Panel: Source Code Viewer -->
+    <Transition name="slide-right">
+      <aside v-if="store.sourceCodePanel.isOpen" class="source-code-panel">
+        <div class="source-panel-header">
+          <div class="source-panel-title">
+            <span class="source-panel-icon">📄</span>
+            <span class="source-panel-filename">{{ store.sourceCodePanel.fileName }}</span>
+          </div>
+          <button class="source-panel-close" @click="store.closeSourceCodePanel()">✕</button>
+        </div>
+        <div class="source-panel-info">
+          <span class="source-panel-procedure">{{ store.sourceCodePanel.procedureName }}</span>
+          <span class="source-panel-line">Line {{ store.sourceCodePanel.highlightedLine }}</span>
+        </div>
+        <div class="source-panel-content" ref="sourceCodeContentRef">
+          <div v-if="store.sourceCodePanel.isLoadingStatements" class="source-loading">
+            AI 설명 로딩 중...
+          </div>
+          <template v-for="(line, index) in store.sourceCodePanel.fileContent.split('\n')" :key="index">
+            <!-- Statement 시작 라인에 AI 설명 표시 -->
+            <div 
+              v-if="getStatementForLine(index + 1)" 
+              class="source-ai-comment"
+            >
+              <span class="ai-comment-icon">🤖</span>
+              <span class="ai-comment-type">{{ getStatementForLine(index + 1)?.statement_type }}</span>
+              <span class="ai-comment-text">{{ getStatementForLine(index + 1)?.summary || getStatementForLine(index + 1)?.ai_description || '' }}</span>
+            </div>
+            <!-- 코드 라인 -->
+            <div 
+              class="source-line"
+              :class="{ 
+                'highlighted': store.sourceCodePanel.highlightedLine === index + 1,
+                'has-statement': !!getStatementForLine(index + 1)
+              }"
+              :data-line="index + 1"
+            >
+              <span class="source-line-number">{{ index + 1 }}</span>
+              <span class="source-line-content">{{ line || ' ' }}</span>
+            </div>
+          </template>
+        </div>
+      </aside>
+    </Transition>
+    
     <!-- Cardinality Modal -->
     <CardinalityModal
       :is-open="isCardinalityModalOpen"
@@ -897,6 +1024,75 @@ async function handleRefresh() {
         </div>
       </div>
     </Teleport>
+    
+    <!-- 하단 테이블 데이터 조회 패널 -->
+    <Transition name="slide-up">
+      <div v-if="store.tableDataPanel.isOpen" class="table-data-panel">
+        <div class="table-data-panel__header">
+          <div class="table-data-panel__title">
+            <IconTable :size="16" />
+            <span>{{ store.tableDataPanel.schema }}.{{ store.tableDataPanel.tableName }}</span>
+            <span class="row-count-badge">{{ store.tableDataPanel.rowCount }}행</span>
+            <span v-if="store.tableDataPanel.executionTimeMs > 0" class="exec-time">
+              {{ store.tableDataPanel.executionTimeMs }}ms
+            </span>
+          </div>
+          <div class="table-data-panel__actions">
+            <label class="limit-selector">
+              <span>Limit:</span>
+              <select 
+                :value="store.tableDataPanel.limit" 
+                @change="(e) => store.changeTableDataLimit(Number((e.target as HTMLSelectElement).value))"
+              >
+                <option :value="10">10</option>
+                <option :value="25">25</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </label>
+            <button class="refresh-btn" @click="store.queryTableData(store.tableDataPanel.tableName, store.tableDataPanel.schema, store.tableDataPanel.limit)" title="새로고침">
+              <IconRefresh :size="14" />
+            </button>
+            <button class="close-btn" @click="store.closeTableDataPanel" title="닫기">×</button>
+          </div>
+        </div>
+        
+        <div class="table-data-panel__content">
+          <!-- 로딩 상태 -->
+          <div v-if="store.tableDataPanel.isLoading" class="loading-state">
+            <span class="spinner"></span>
+            <span>데이터 조회 중...</span>
+          </div>
+          
+          <!-- 에러 상태 -->
+          <div v-else-if="store.tableDataPanel.error" class="error-state">
+            <span class="error-icon">⚠️</span>
+            <span>{{ store.tableDataPanel.error }}</span>
+          </div>
+          
+          <!-- 데이터 테이블 -->
+          <div v-else-if="store.tableDataPanel.columns.length > 0" class="data-table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th v-for="col in store.tableDataPanel.columns" :key="col">{{ col }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, idx) in store.tableDataPanel.rows" :key="idx">
+                  <td v-for="(cell, cidx) in row" :key="cidx">{{ formatCell(cell) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          
+          <!-- 데이터 없음 -->
+          <div v-else class="empty-state">
+            <span>조회된 데이터가 없습니다.</span>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -1868,6 +2064,455 @@ async function handleRefresh() {
         background: #dc2626;
       }
     }
+  }
+}
+
+// ============================================================================
+// 소스 코드 패널
+// ============================================================================
+.source-code-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 55%;
+  max-width: 800px;
+  min-width: 500px;
+  background: var(--color-bg-secondary, #1e1f2a);
+  border-left: 1px solid var(--color-border, #373a40);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.4);
+}
+
+.source-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--color-bg-tertiary, #2c2e33);
+  border-bottom: 1px solid var(--color-border, #373a40);
+  color: var(--color-text, #c1c2c5);
+}
+
+.source-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.source-panel-icon {
+  font-size: 1rem;
+}
+
+.source-panel-filename {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-panel-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: var(--color-text-muted, #909296);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--color-text, #c1c2c5);
+  }
+}
+
+.source-panel-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--color-bg-secondary, #1e1f2a);
+  border-bottom: 1px solid var(--color-border, #373a40);
+  font-size: 0.8rem;
+}
+
+.source-panel-procedure {
+  color: #a78bfa;
+  font-weight: 500;
+  font-family: var(--font-mono, monospace);
+}
+
+.source-panel-line {
+  color: #6ee7b7;
+  font-weight: 500;
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  background: rgba(110, 231, 183, 0.1);
+  border-radius: 4px;
+}
+
+.source-panel-content {
+  flex: 1;
+  overflow: auto;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border, #373a40);
+    border-radius: 4px;
+    
+    &:hover {
+      background: var(--color-text-muted, #5c5f66);
+    }
+  }
+}
+
+.source-line {
+  display: flex;
+  padding: 0 12px;
+  transition: background 0.2s;
+  position: relative;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  
+  &.highlighted {
+    background: rgba(56, 189, 248, 0.25);
+    
+    // 왼쪽 강조 바
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: linear-gradient(180deg, #38bdf8, #0ea5e9);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+    }
+    
+    .source-line-number {
+      color: #38bdf8;
+      font-weight: 700;
+      opacity: 1;
+      background: rgba(56, 189, 248, 0.15);
+    }
+    
+    .source-line-content {
+      color: #fff;
+    }
+  }
+}
+
+.source-line-number {
+  min-width: 50px;
+  padding: 0 12px;
+  text-align: right;
+  color: var(--color-text-muted, #5c5f66);
+  user-select: none;
+  opacity: 0.5;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border, #373a40);
+  margin-right: 12px;
+  transition: all 0.2s;
+}
+
+.source-line-content {
+  white-space: pre;
+  color: var(--color-text, #c1c2c5);
+  flex: 1;
+}
+
+.source-loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--color-text-muted, #5c5f66);
+  font-size: 0.85rem;
+}
+
+// AI 설명 주석
+.source-ai-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px 8px 70px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.08) 0%, rgba(168, 85, 247, 0.02) 100%);
+  border-left: 3px solid #a855f7;
+  margin: 4px 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.ai-comment-icon {
+  flex-shrink: 0;
+  font-size: 0.9rem;
+}
+
+.ai-comment-type {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: #a855f7;
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  background: rgba(168, 85, 247, 0.15);
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.ai-comment-text {
+  color: #c4b5fd;
+  font-style: italic;
+}
+
+.source-line.has-statement {
+  background: rgba(168, 85, 247, 0.05);
+}
+
+// 슬라이드 애니메이션
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.slide-right-enter-to,
+.slide-right-leave-from {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+// 하단 슬라이드 업 애니메이션
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+.slide-up-enter-to,
+.slide-up-leave-from {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+// 테이블 데이터 조회 패널
+.table-data-panel {
+  position: absolute;
+  bottom: 0;
+  left: 280px; // left-panel 너비
+  right: 0;
+  height: 300px;
+  background: var(--color-bg-secondary, #25262b);
+  border-top: 1px solid var(--color-border, #373a40);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--color-bg-tertiary, #1e1f23);
+    border-bottom: 1px solid var(--color-border, #373a40);
+    flex-shrink: 0;
+  }
+  
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--color-text-bright, #fff);
+    
+    .row-count-badge {
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 2px 8px;
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border-radius: 12px;
+    }
+    
+    .exec-time {
+      font-size: 0.75rem;
+      color: var(--color-success, #40c057);
+    }
+  }
+  
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    
+    .limit-selector {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      color: var(--color-text-light, #909296);
+      
+      select {
+        padding: 4px 8px;
+        background: var(--color-bg, #1a1b26);
+        border: 1px solid var(--color-border, #373a40);
+        border-radius: 4px;
+        color: var(--color-text, #c1c2c5);
+        font-size: 0.8rem;
+        cursor: pointer;
+        
+        &:hover {
+          border-color: var(--color-text-muted, #5c5f66);
+        }
+      }
+    }
+    
+    .refresh-btn,
+    .close-btn {
+      padding: 6px 10px;
+      background: var(--color-bg, #1a1b26);
+      border: 1px solid var(--color-border, #373a40);
+      border-radius: 4px;
+      color: var(--color-text, #c1c2c5);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      
+      &:hover {
+        background: var(--color-bg-tertiary, #1e1f23);
+        border-color: var(--color-text-muted, #5c5f66);
+      }
+    }
+    
+    .close-btn {
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+  }
+  
+  &__content {
+    flex: 1;
+    overflow: auto;
+    
+    .loading-state,
+    .error-state,
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      height: 100%;
+      color: var(--color-text-light, #909296);
+      font-size: 0.9rem;
+    }
+    
+    .error-state {
+      color: var(--color-error, #fa5252);
+    }
+    
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--color-border, #373a40);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+  }
+}
+
+.data-table-wrapper {
+  overflow: auto;
+  height: 100%;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  
+  thead {
+    position: sticky;
+    top: 0;
+    background: var(--color-bg-tertiary, #1e1f23);
+    z-index: 1;
+  }
+  
+  th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--color-text-light, #909296);
+    border-bottom: 1px solid var(--color-border, #373a40);
+    white-space: nowrap;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(55, 58, 64, 0.5);
+    color: var(--color-text, #c1c2c5);
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  tbody tr {
+    transition: background 0.15s;
+    
+    &:hover {
+      background: rgba(56, 189, 248, 0.05);
+    }
+    
+    &:nth-child(even) {
+      background: rgba(255, 255, 255, 0.01);
+      
+      &:hover {
+        background: rgba(56, 189, 248, 0.05);
+      }
+    }
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

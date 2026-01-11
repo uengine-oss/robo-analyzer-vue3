@@ -20,7 +20,8 @@ import type {
   GraphLink,
   Neo4jNode,
   Neo4jRelationship,
-  StreamMessage
+  StreamMessage,
+  NameCaseOption
 } from '@/types'
 
 // 그래프 이벤트 타입 (노드/관계 생성 정보)
@@ -104,6 +105,9 @@ export const useProjectStore = defineStore('project', () => {
   
   const uploadedFiles = ref<UploadedFile[]>([])
   const uploadedDdlFiles = ref<UploadedFile[]>([])
+  
+  // 메타데이터 대소문자 변환 옵션
+  const nameCaseOption = ref<'original' | 'uppercase' | 'lowercase'>('original')
   
   // ==========================================================================
   // LocalStorage 키
@@ -221,7 +225,8 @@ export const useProjectStore = defineStore('project', () => {
   const analyzeMeta = computed<BackendRequestMetadata>(() => ({
     strategy: (sourceType.value === 'oracle' || sourceType.value === 'postgresql') ? 'dbms' : 'framework',
     target: sourceType.value,
-    projectName: projectName.value
+    projectName: projectName.value,
+    nameCase: nameCaseOption.value
   }))
   
   const isValidConfig = computed(() => 
@@ -682,9 +687,15 @@ export const useProjectStore = defineStore('project', () => {
   /**
    * 데이터 확인 모달에서 사용자 선택 처리
    */
-  async function handleDataConfirmAction(action: 'delete' | 'append' | 'cancel') {
+  async function handleDataConfirmAction(
+    action: 'delete' | 'append' | 'cancel',
+    nameCase: NameCaseOption = 'original'
+  ) {
     showDataConfirmModal.value = false
     const currentAction = pendingAction.value
+    
+    // 대소문자 옵션 저장
+    nameCaseOption.value = nameCase
     
     if (action === 'cancel') {
       addMessage('message', currentAction === 'restart' ? '⏹️ 인제스천이 취소되었습니다.' : '⏹️ 업로드가 취소되었습니다.')
@@ -712,6 +723,11 @@ export const useProjectStore = defineStore('project', () => {
       }
     } else if (action === 'append') {
       addMessage('message', '📎 기존 데이터에 추가합니다...')
+    }
+    
+    // 대소문자 옵션 로그
+    if (nameCase !== 'original') {
+      addMessage('message', `🔤 메타데이터 ${nameCase === 'uppercase' ? '대문자' : '소문자'} 변환 적용`)
     }
     
     // pendingAction에 따라 분기 처리

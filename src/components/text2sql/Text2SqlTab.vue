@@ -29,11 +29,9 @@
       <div class="chat-messages" ref="chatContainer" @scroll="handleScroll">
         <!-- 초기 안내 메시지 -->
         <div v-if="chatMessages.length === 0 && !reactStore.isRunning" class="welcome-message">
-          <div class="welcome-icon">🤖</div>
-          <h2>ReAct Text2SQL</h2>
-          <p>자연어로 질문하면 AI가 SQL을 생성합니다.</p>
+          <h1 class="gradient-title">자연어로 데이터를 분석하세요</h1>
+          <p class="subtitle">질문을 입력하면 AI가 최적의 SQL 쿼리를 생성합니다</p>
           <div class="examples">
-            <span class="example-label">예시:</span>
             <button v-for="example in exampleQueries" :key="example" class="example-btn" @click="setQuestion(example)">
               {{ example }}
             </button>
@@ -1079,22 +1077,45 @@ watch(() => reactStore.status, async (status, oldStatus) => {
 
 onMounted(() => {
   inputRef.value?.focus()
+  
+  // 상단 검색창에서 전달된 자연어 질문 처리
+  const pendingQuery = sessionStore.consumeNLSearch()
+  if (pendingQuery) {
+    inputText.value = pendingQuery
+    // 약간의 딜레이 후 자동 검색 시작
+    setTimeout(() => {
+      handleSubmit()
+    }, 100)
+  }
+})
+
+// 탭 전환 시에도 pendingNLSearch 체크
+watch(() => sessionStore.activeTab, (tab) => {
+  if (tab === 'text2sql') {
+    const pendingQuery = sessionStore.consumeNLSearch()
+    if (pendingQuery) {
+      inputText.value = pendingQuery
+      setTimeout(() => {
+        handleSubmit()
+      }, 100)
+    }
+  }
 })
 </script>
 
 <style scoped lang="scss">
 // ═══════════════════════════════════════════════════════════════
-// Design System Variables - Cohesive Cyber-Mint Theme
+// Design System Variables - Cohesive Theme (using CSS vars)
 // ═══════════════════════════════════════════════════════════════
 $primary-gradient: linear-gradient(135deg, #00d4aa 0%, #00a8cc 50%, #7c3aed 100%);
 $accent-glow: rgba(0, 212, 170, 0.4);
-$card-glass: rgba(255, 255, 255, 0.03);
-$card-glass-hover: rgba(255, 255, 255, 0.06);
-$border-subtle: rgba(255, 255, 255, 0.08);
+$card-glass: var(--chat-card-bg, rgba(255, 255, 255, 0.03));
+$card-glass-hover: var(--chat-card-hover, rgba(255, 255, 255, 0.06));
+$border-subtle: var(--chat-border, rgba(255, 255, 255, 0.08));
 $border-active: rgba(0, 212, 170, 0.3);
-$text-primary: #f0f4f8;
-$text-secondary: #94a3b8;
-$text-muted: #64748b;
+$text-primary: var(--color-text-bright, #f0f4f8);
+$text-secondary: var(--color-text-light, #94a3b8);
+$text-muted: var(--color-text-muted, #64748b);
 
 // Unified Badge Colors
 $badge-reasoning: #a78bfa;
@@ -1106,9 +1127,10 @@ $badge-error: #f87171;
 .text2sql-tab {
   display: flex;
   height: 100%;
-  background: linear-gradient(180deg, #0f1419 0%, #1a1f2e 100%);
+  background: var(--color-bg);
   overflow: hidden;
   font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--color-text);
 }
 
 // Direct SQL 전체 화면
@@ -1130,10 +1152,11 @@ $badge-error: #f87171;
   align-items: center;
   gap: 2px;
   padding: 3px;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--color-bg-secondary);
   backdrop-filter: blur(12px);
-  border: 1px solid $border-subtle;
+  border: 1px solid var(--color-border);
   border-radius: 10px;
+  box-shadow: var(--shadow-md);
 }
 
 .mode-option {
@@ -1144,7 +1167,7 @@ $badge-error: #f87171;
   background: transparent;
   border: none;
   border-radius: 7px;
-  color: $text-muted;
+  color: var(--color-text-muted);
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -1160,14 +1183,14 @@ $badge-error: #f87171;
   }
   
   &:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: $text-secondary;
+    background: var(--color-bg-hover);
+    color: var(--color-text);
   }
   
   &.active {
-    background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(0, 168, 204, 0.2) 100%);
-    color: #00d4aa;
-    box-shadow: 0 2px 8px rgba(0, 212, 170, 0.15);
+    background: var(--color-accent);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     
     .opt-icon {
       filter: drop-shadow(0 0 3px rgba(0, 212, 170, 0.5));
@@ -1234,32 +1257,45 @@ $badge-error: #f87171;
 // ═══════════════════════════════════════════════════════════════
 // Welcome Message
 // ═══════════════════════════════════════════════════════════════
+@keyframes gradient-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
 .welcome-message {
   text-align: center;
-  padding: 80px 32px;
+  padding: 100px 32px 60px;
   animation: fadeInUp 0.6s ease-out;
 
-  .welcome-icon {
-    font-size: 56px;
-    margin-bottom: 20px;
-    filter: drop-shadow(0 0 20px $accent-glow);
-  }
-
-  h2 {
-    margin: 0 0 12px 0;
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    background: $primary-gradient;
+  .gradient-title {
+    margin: 0 0 16px 0;
+    font-size: 36px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.3;
+    background: linear-gradient(
+      90deg,
+      #667eea 0%,
+      #764ba2 15%,
+      #f093fb 30%,
+      #f5576c 45%,
+      #fda085 60%,
+      #f6d365 75%,
+      #667eea 100%
+    );
+    background-size: 200% auto;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    animation: gradient-flow 4s ease infinite;
   }
 
-  p {
-    margin: 0 0 32px 0;
-    font-size: 15px;
-    color: $text-secondary;
+  .subtitle {
+    margin: 0 0 48px 0;
+    font-size: 16px;
+    color: var(--color-text-muted);
+    font-weight: 400;
     letter-spacing: 0.01em;
   }
 
@@ -1271,30 +1307,23 @@ $badge-error: #f87171;
     align-items: center;
   }
 
-  .example-label {
-    font-size: 12px;
-    color: $text-muted;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-  }
-
   .example-btn {
     padding: 10px 20px;
-    background: $card-glass;
+    background: var(--chat-card-bg);
     backdrop-filter: blur(12px);
-    border: 1px solid $border-subtle;
+    border: 1px solid var(--color-border);
     border-radius: 24px;
-    color: $text-primary;
+    color: var(--color-text);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
 
     &:hover {
-      background: $card-glass-hover;
-      border-color: $border-active;
-      box-shadow: 0 4px 20px rgba(0, 212, 170, 0.15);
+      background: var(--chat-card-hover);
+      border-color: var(--color-accent);
+      box-shadow: var(--shadow-md);
       transform: translateY(-2px);
     }
   }
@@ -1326,14 +1355,14 @@ $badge-error: #f87171;
     flex-direction: row-reverse;
 
     .message-content {
-      background: linear-gradient(135deg, #00d4aa 0%, #00a8cc 100%);
+      background: var(--chat-user-msg-bg);
       border: none;
       border-radius: 20px 20px 6px 20px;
       box-shadow: 0 4px 24px rgba(0, 212, 170, 0.25);
     }
 
     .message-text {
-      color: #0a1628;
+      color: var(--chat-user-msg-text);
       font-weight: 500;
     }
   }
@@ -1342,17 +1371,18 @@ $badge-error: #f87171;
   &.thinking,
   &.reasoning,
   &.tool,
+  &.tool,
   &.question,
   &.sql,
   &.result {
     align-self: flex-start;
 
     .message-content {
-      background: $card-glass;
+      background: var(--chat-msg-bg);
       backdrop-filter: blur(16px);
-      border: 1px solid $border-subtle;
+      border: 1px solid var(--chat-msg-border);
       border-radius: 6px 20px 20px 20px;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+      box-shadow: var(--chat-msg-shadow);
     }
   }
 
@@ -1409,9 +1439,10 @@ $badge-error: #f87171;
   }
 
   &.ai {
-    background: $card-glass;
+    background: var(--chat-msg-bg);
     backdrop-filter: blur(8px);
-    border: 1px solid $border-subtle;
+    border: 1px solid var(--chat-msg-border);
+    box-shadow: var(--chat-msg-shadow);
   }
 
   &.error {
@@ -1613,14 +1644,14 @@ $badge-error: #f87171;
 .tool-params-inline {
   margin-top: 12px;
   padding: 12px 14px;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--chat-tool-bg);
   border-radius: 10px;
-  border: 1px solid $border-subtle;
+  border: 1px solid var(--chat-tool-border);
 
   code {
     font-size: 12px;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    color: $badge-tool;
+    color: var(--chat-badge-tool);
     word-break: break-all;
     line-height: 1.5;
   }
@@ -1657,9 +1688,9 @@ $badge-error: #f87171;
   pre {
     margin: 0;
     padding: 12px 14px;
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--chat-code-bg);
     border-radius: 10px;
-    border: 1px solid $border-subtle;
+    border: 1px solid var(--chat-tool-border);
     max-height: 180px;
     overflow: auto;
 
@@ -1669,7 +1700,7 @@ $badge-error: #f87171;
     }
 
     &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.2);
       border-radius: 2px;
     }
   }
@@ -1677,7 +1708,7 @@ $badge-error: #f87171;
   code {
     font-size: 11px;
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    color: $badge-success;
+    color: var(--chat-code-text);
     line-height: 1.5;
   }
 }
@@ -1688,7 +1719,7 @@ $badge-error: #f87171;
 .step-details {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid $border-subtle;
+  border-top: 1px solid var(--color-border);
 }
 
 .step-details-header {
@@ -1794,8 +1825,8 @@ $badge-error: #f87171;
   margin: 12px 0 0 0;
   padding: 14px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid $border-subtle;
+  background: var(--chat-code-bg);
+  border: 1px solid var(--chat-tool-border);
   overflow: auto;
   max-height: 240px;
 
@@ -1805,21 +1836,21 @@ $badge-error: #f87171;
   }
 
   &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
   }
 
   code {
     font-family: 'JetBrains Mono', 'Fira Code', monospace;
     font-size: 12px;
-    color: $badge-tool;
+    color: var(--chat-code-text);
     white-space: pre;
     line-height: 1.6;
   }
 
   &.raw code {
     font-size: 10px;
-    color: $text-muted;
+    color: var(--color-text-muted);
   }
 }
 
@@ -1894,7 +1925,7 @@ $badge-error: #f87171;
   transition: all 0.2s ease;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--chat-code-bg);
     border-color: $border-active;
   }
 }
@@ -1982,15 +2013,15 @@ $badge-error: #f87171;
   .sql-code {
     margin: 0;
     padding: 16px;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--chat-code-bg);
     border-radius: 12px;
-    border: 1px solid $border-subtle;
+    border: 1px solid var(--chat-tool-border);
     overflow-x: auto;
 
     code {
       font-size: 13px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      color: $badge-tool;
+      color: var(--chat-code-text);
       line-height: 1.6;
     }
   }
@@ -2077,8 +2108,8 @@ $badge-error: #f87171;
 // ═══════════════════════════════════════════════════════════════
 .chat-input-area {
   padding: 20px 32px;
-  border-top: 1px solid $border-subtle;
-  background: linear-gradient(180deg, rgba(15, 20, 25, 0.9) 0%, rgba(15, 20, 25, 1) 100%);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
   backdrop-filter: blur(20px);
   position: relative;
   z-index: 10;
@@ -2147,10 +2178,10 @@ $badge-error: #f87171;
   textarea {
     flex: 1;
     padding: 14px 20px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid $border-subtle;
+    background: var(--chat-input-bg);
+    border: 1px solid var(--color-border);
     border-radius: 28px;
-    color: $text-primary;
+    color: var(--color-text);
     font-size: 14px;
     font-family: inherit;
     resize: none;
@@ -2158,15 +2189,16 @@ $badge-error: #f87171;
     max-height: 140px;
     transition: all 0.25s ease;
     line-height: 1.5;
+    box-shadow: var(--shadow-sm);
 
     &::placeholder {
-      color: $text-muted;
+      color: var(--color-text-muted);
     }
 
     &:focus {
       outline: none;
-      border-color: rgba(0, 212, 170, 0.5);
-      box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1);
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
     }
 
     &:disabled {
@@ -2257,7 +2289,7 @@ $badge-error: #f87171;
     input[type="number"] {
       width: 80px;
       padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--chat-code-bg);
       border: 1px solid $border-subtle;
       border-radius: 8px;
       color: $text-primary;
@@ -2336,7 +2368,7 @@ $badge-error: #f87171;
     pre {
       margin: 0;
       padding: 16px;
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--chat-code-bg);
       border: 1px solid $border-subtle;
       border-radius: 12px;
       overflow-x: auto;
@@ -2347,7 +2379,7 @@ $badge-error: #f87171;
     .sql-diff {
       margin: 0;
       padding: 16px;
-      background: rgba(0, 0, 0, 0.3);
+      background: var(--chat-code-bg);
       border: 1px solid $border-subtle;
       border-radius: 12px;
       overflow-x: auto;

@@ -52,7 +52,7 @@ const emit = defineEmits<{
 const sessionStore = useSessionStore()
 const projectStore = useProjectStore()
 
-const { sessionId, apiKey: storeApiKey } = storeToRefs(sessionStore)
+const { sessionId, apiKey: storeApiKey, theme: storeTheme } = storeToRefs(sessionStore)
 const { projectName, graphData } = storeToRefs(projectStore)
 
 // ============================================================================
@@ -64,6 +64,9 @@ const tempNodeLimit = ref(500)
 
 /** UML 다이어그램 기본 깊이 (임시값) */
 const tempUmlDepth = ref(3)
+
+/** 테마 (dark/light) */
+const tempTheme = ref<'dark' | 'light'>('dark')
 
 /** API Key (마스킹) */
 const tempApiKey = ref('')
@@ -148,6 +151,9 @@ function handleSaveAndApply() {
   localStorage.setItem('nodeLimit', String(tempNodeLimit.value))
   localStorage.setItem('umlDepth', String(tempUmlDepth.value))
   
+  // 테마 저장
+  sessionStore.setTheme(tempTheme.value)
+  
   // 이벤트 발생
   emit('update:nodeLimit', tempNodeLimit.value)
   emit('update:umlDepth', tempUmlDepth.value)
@@ -171,7 +177,7 @@ function handleSaveAndApply() {
 // ============================================================================
 
 // 값 변경 감지 (저장 버튼 활성화용)
-watch([tempNodeLimit, tempUmlDepth, tempApiKey, tempAppTitle], () => {
+watch([tempNodeLimit, tempUmlDepth, tempApiKey, tempAppTitle, tempTheme], () => {
   if (props.isOpen) {
     hasChanges.value = true
   }
@@ -191,6 +197,10 @@ watch(() => props.isOpen, (isOpen) => {
     const savedUmlDepth = localStorage.getItem('umlDepth')
     if (savedUmlDepth) {
       tempUmlDepth.value = parseInt(savedUmlDepth)
+    }
+    // 테마 로드
+    if (storeTheme.value) {
+      tempTheme.value = storeTheme.value
     }
     // API Key 로드
     if (storeApiKey.value) {
@@ -328,6 +338,33 @@ watch(() => props.isOpen, (isOpen) => {
                       step="1"
                     />
                     <span class="value">{{ tempUmlDepth }}</span>
+                  </div>
+                </div>
+                
+                <div class="setting-item">
+                  <div class="setting-label">
+                    <span class="label-text">테마</span>
+                    <span class="label-desc">
+                      화면 테마를 선택합니다. 다크 모드 또는 라이트 모드를 선택할 수 있습니다.
+                    </span>
+                  </div>
+                  <div class="setting-control theme-control">
+                    <button 
+                      class="theme-btn"
+                      :class="{ active: tempTheme === 'dark' }"
+                      @click="tempTheme = 'dark'"
+                    >
+                      <span class="theme-icon">🌙</span>
+                      <span>다크</span>
+                    </button>
+                    <button 
+                      class="theme-btn"
+                      :class="{ active: tempTheme === 'light' }"
+                      @click="tempTheme = 'light'"
+                    >
+                      <span class="theme-icon">☀️</span>
+                      <span>라이트</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -839,6 +876,51 @@ watch(() => props.isOpen, (isOpen) => {
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text);
+}
+
+// ============================================================================
+// 테마 선택 버튼
+// ============================================================================
+
+.theme-control {
+  display: flex;
+  gap: 12px;
+}
+
+.theme-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 100px;
+  
+  .theme-icon {
+    font-size: 24px;
+  }
+  
+  span:last-child {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  
+  &:hover {
+    border-color: var(--color-accent);
+    background: var(--color-bg-tertiary);
+  }
+  
+  &.active {
+    border-color: var(--color-accent);
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover));
+    color: white;
+    box-shadow: 0 4px 12px rgba(34, 139, 230, 0.3);
+  }
 }
 
 // ============================================================================

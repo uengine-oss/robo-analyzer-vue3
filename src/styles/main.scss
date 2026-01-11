@@ -1,14 +1,18 @@
 // ============================================
-// Robo Analyzer - Dark Modern Theme
-// Based on robo-architect design system
+// Robo Analyzer - Themeable Design System
+// Supports both Dark and Light themes
 // ============================================
 
-:root {
+// ============================================
+// Dark Theme (Default)
+// ============================================
+:root, [data-theme="dark"] {
   // UI Colors - Dark Theme
   --color-bg: #1a1b1e;
   --color-bg-secondary: #25262b;
   --color-bg-tertiary: #2c2e33;
   --color-bg-elevated: #313338;
+  --color-bg-hover: #3a3d44;
   
   --color-text: #c1c2c5;
   --color-text-light: #909296;
@@ -41,6 +45,130 @@
   --color-policy: #b197fc;
   --color-aggregate: #fcc419;
   
+  // Shadows (dark theme)
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  
+  // Canvas specific
+  --color-canvas-bg: #1e1e2e;
+  --color-canvas-grid: #2a2a3a;
+  --color-canvas-node-bg: #2c2e33;
+  --color-canvas-node-border: #404552;
+  
+  // Chat/Text2SQL specific (dark)
+  --chat-card-bg: rgba(255, 255, 255, 0.03);
+  --chat-card-hover: rgba(255, 255, 255, 0.06);
+  --chat-border: rgba(255, 255, 255, 0.08);
+  --chat-input-bg: rgba(0, 0, 0, 0.3);
+  --chat-user-msg-bg: linear-gradient(135deg, #00d4aa 0%, #00a8cc 100%);
+  --chat-user-msg-text: #0a1628;
+  --chat-ai-msg-bg: rgba(255, 255, 255, 0.03);
+  --chat-code-bg: rgba(0, 0, 0, 0.4);
+  --chat-code-text: #38bdf8;
+  --chat-code-inline-bg: rgba(0, 0, 0, 0.3);
+  --chat-code-inline-text: #38bdf8;
+  
+  // Message bubble colors (dark)
+  --chat-msg-bg: rgba(255, 255, 255, 0.03);
+  --chat-msg-border: rgba(255, 255, 255, 0.08);
+  --chat-msg-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  --chat-tool-bg: rgba(0, 0, 0, 0.25);
+  --chat-tool-border: rgba(255, 255, 255, 0.08);
+  
+  // Badge colors (dark)
+  --chat-badge-reasoning: #a78bfa;
+  --chat-badge-tool: #38bdf8;
+  --chat-badge-success: #34d399;
+  --chat-badge-warning: #fbbf24;
+  --chat-badge-error: #f87171;
+}
+
+// ============================================
+// Light Theme (Inspired by Atlan/DataHub style)
+// ============================================
+[data-theme="light"] {
+  // UI Colors - Light Theme (High Contrast)
+  --color-bg: #f1f5f9;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #e2e8f0;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #cbd5e1;
+  
+  --color-text: #0f172a;
+  --color-text-light: #475569;
+  --color-text-bright: #020617;
+  --color-text-muted: #64748b;
+  
+  --color-border: #cbd5e1;
+  --color-border-light: #e2e8f0;
+  --color-border-focus: #2563eb;
+  
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-secondary: #7c3aed;
+  
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+  
+  // Graph/Analysis node colors (vibrant for light bg)
+  --color-node-class: #db2777;
+  --color-node-interface: #0d9488;
+  --color-node-method: #d97706;
+  --color-node-table: #059669;
+  --color-node-procedure: #7c3aed;
+  
+  // Event Storming inspired colors
+  --color-command: #2563eb;
+  --color-event: #ea580c;
+  --color-policy: #8b5cf6;
+  --color-aggregate: #ca8a04;
+  
+  // Shadows (light theme - more visible)
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
+  
+  // Canvas specific
+  --color-canvas-bg: #f8fafc;
+  --color-canvas-grid: #cbd5e1;
+  --color-canvas-node-bg: #ffffff;
+  --color-canvas-node-border: #94a3b8;
+  
+  // Chat/Text2SQL specific (light - high contrast)
+  --chat-card-bg: #ffffff;
+  --chat-card-hover: #f1f5f9;
+  --chat-border: #cbd5e1;
+  --chat-input-bg: #ffffff;
+  --chat-user-msg-bg: linear-gradient(135deg, #059669 0%, #0284c7 100%);
+  --chat-user-msg-text: #ffffff;
+  --chat-ai-msg-bg: #ffffff;
+  --chat-code-bg: #1e293b;
+  --chat-code-text: #e2e8f0;
+  --chat-code-inline-bg: rgba(0, 0, 0, 0.08);
+  --chat-code-inline-text: #0f172a;
+  
+  // Message bubble colors (light)
+  --chat-msg-bg: #ffffff;
+  --chat-msg-border: #e2e8f0;
+  --chat-msg-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --chat-tool-bg: #f8fafc;
+  --chat-tool-border: #e2e8f0;
+  
+  // Badge colors (light - more vibrant)
+  --chat-badge-reasoning: #7c3aed;
+  --chat-badge-tool: #0284c7;
+  --chat-badge-success: #059669;
+  --chat-badge-warning: #d97706;
+  --chat-badge-error: #dc2626;
+}
+
+// ============================================
+// Shared Variables (theme-independent)
+// ============================================
+:root {
   // Typography
   --font-main: 'Noto Sans KR', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -56,11 +184,6 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  
-  // Shadows (adjusted for dark theme)
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
   
   // Transitions
   --transition-fast: 150ms ease;

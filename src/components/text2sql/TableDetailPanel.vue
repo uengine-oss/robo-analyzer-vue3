@@ -201,6 +201,32 @@ function getColumnIcon(col: Text2SqlColumnInfo): string {
 function isColumnUpdating(colName: string): boolean {
   return updatingColumnNames.value.has(colName)
 }
+
+// 설명 출처에 따른 색상 반환 (범례와 일치)
+// procedure: 하늘색, ddl: 초록색, user: 주황색
+const descriptionSourceColors: Record<string, string> = {
+  procedure: '#38bdf8',  // 하늘색 (스토어드 프로시저 분석)
+  ddl: '#22c55e',        // 초록색 (DDL에서 추출)
+  user: '#f59e0b',       // 주황색 (사용자 입력)
+}
+
+// 기본 텍스트 색상 (출처가 없을 때)
+const defaultDescColor = '#c1c2c5'
+
+function getDescriptionColor(source?: string): string {
+  if (!source) return defaultDescColor
+  return descriptionSourceColors[source] || defaultDescColor
+}
+
+function getDescriptionSourceLabel(source?: string): string {
+  if (!source) return ''
+  const labels: Record<string, string> = {
+    ddl: 'DDL',
+    procedure: '분석',
+    user: '사용자'
+  }
+  return labels[source] || ''
+}
 </script>
 
 <template>
@@ -233,7 +259,16 @@ function isColumnUpdating(colName: string): boolean {
           
           <!-- Description -->
           <div class="detail-field" :class="{ 'is-updating': isTableUpdating }">
-            <label>설명</label>
+            <label>
+              설명
+              <span 
+                v-if="table.description_source" 
+                class="detail-field__source-badge"
+                :style="{ background: getDescriptionColor(table.description_source) }"
+              >
+                {{ getDescriptionSourceLabel(table.description_source) }}
+              </span>
+            </label>
             <div v-if="isEditingDescription" class="detail-field__edit">
               <textarea 
                 v-model="tableDescForm.description"
@@ -245,7 +280,12 @@ function isColumnUpdating(colName: string): boolean {
                 <button class="btn btn--secondary btn--sm" @click="cancelEditDescription">취소</button>
               </div>
             </div>
-            <div v-else class="detail-field__display" @click="startEditDescription">
+            <div 
+              v-else 
+              class="detail-field__display" 
+              :style="{ color: getDescriptionColor(table.description_source) }"
+              @click="startEditDescription"
+            >
               <span v-if="table.description">{{ table.description }}</span>
               <span v-else class="placeholder">설명을 추가하려면 클릭하세요</span>
               <IconEdit :size="14" />
@@ -289,7 +329,16 @@ function isColumnUpdating(colName: string): boolean {
                 </div>
               </div>
               <div v-else class="column-item__desc" @click="startEditColumn(col.name)">
-                <span v-if="col.description">{{ col.description }}</span>
+                <span 
+                  v-if="col.description_source" 
+                  class="column-item__source-dot"
+                  :style="{ background: getDescriptionColor(col.description_source) }"
+                  :title="`출처: ${getDescriptionSourceLabel(col.description_source)}`"
+                ></span>
+                <span 
+                  v-if="col.description" 
+                  :style="{ color: getDescriptionColor(col.description_source) }"
+                >{{ col.description }}</span>
                 <span v-else class="placeholder">설명 추가...</span>
               </div>
             </div>
@@ -494,11 +543,24 @@ function isColumnUpdating(colName: string): boolean {
   margin-bottom: 16px;
   
   label {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 0.75rem;
     color: var(--color-text-muted);
     margin-bottom: 6px;
   }
+}
+
+/* 설명 출처 배지 (레이블 옆) */
+.detail-field__source-badge {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: #1a1b1e;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .detail-field__display {
@@ -612,7 +674,18 @@ function isColumnUpdating(colName: string): boolean {
   font-weight: bold;
 }
 
+/* 컬럼 설명 출처 점 */
+.column-item__source-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .column-item__desc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 6px;
   padding: 6px 8px;
   background: var(--color-bg-secondary);

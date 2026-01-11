@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { IconX, IconTrash, IconPlus, IconAlertTriangle } from '@/components/icons'
 
 export type DataAction = 'delete' | 'append' | 'cancel'
+export type NameCaseOption = 'original' | 'uppercase' | 'lowercase'
 
 const props = defineProps<{
   isOpen: boolean
@@ -10,11 +12,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'confirm', action: DataAction): void
+  (e: 'confirm', action: DataAction, nameCase: NameCaseOption): void
 }>()
 
+// 대소문자 변환 옵션
+const nameCaseOption = ref<NameCaseOption>('original')
+
 function handleAction(action: DataAction) {
-  emit('confirm', action)
+  emit('confirm', action, nameCaseOption.value)
 }
 
 function handleClose() {
@@ -51,8 +56,29 @@ function handleClose() {
               </div>
             </div>
             
+            <!-- Name Case Option -->
+            <div class="section-label">메타데이터 대소문자 변환</div>
+            <div class="case-options">
+              <label class="case-option" :class="{ active: nameCaseOption === 'original' }">
+                <input type="radio" v-model="nameCaseOption" value="original" />
+                <span class="case-icon">Aa</span>
+                <span class="case-label">원본 유지</span>
+              </label>
+              <label class="case-option" :class="{ active: nameCaseOption === 'uppercase' }">
+                <input type="radio" v-model="nameCaseOption" value="uppercase" />
+                <span class="case-icon">AA</span>
+                <span class="case-label">대문자</span>
+              </label>
+              <label class="case-option" :class="{ active: nameCaseOption === 'lowercase' }">
+                <input type="radio" v-model="nameCaseOption" value="lowercase" />
+                <span class="case-icon">aa</span>
+                <span class="case-label">소문자</span>
+              </label>
+            </div>
+            <p class="case-hint">테이블명, 컬럼명 등 메타데이터에 적용됩니다</p>
+            
             <!-- Action Options -->
-            <div class="section-label">처리 방법 선택</div>
+            <div class="section-label" style="margin-top: 20px;">처리 방법 선택</div>
             
             <div class="action-options">
               <!-- Delete and Start Fresh -->
@@ -228,6 +254,64 @@ function handleClose() {
   margin-bottom: 12px;
 }
 
+/* Case Options */
+.case-options {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.case-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  background: var(--color-bg-tertiary, #373a40);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  input {
+    display: none;
+  }
+  
+  &:hover {
+    background: var(--color-bg, #25262b);
+  }
+  
+  &.active {
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+    
+    .case-icon {
+      color: #38bdf8;
+    }
+  }
+}
+
+.case-icon {
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-light, #909296);
+  transition: color 0.2s;
+}
+
+.case-label {
+  font-size: 0.8rem;
+  color: var(--color-text, #c1c2c5);
+}
+
+.case-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #5c5f66);
+  font-style: italic;
+}
+
 /* Action Options */
 .action-options {
   display: flex;
@@ -342,4 +426,6 @@ function handleClose() {
   }
 }
 </style>
+
+
 

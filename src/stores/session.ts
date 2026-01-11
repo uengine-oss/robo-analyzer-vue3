@@ -4,8 +4,11 @@ import { v4 as uuidv4 } from 'uuid'
 
 const STORAGE_KEY_SESSION_ID = 'robo-analyzer-session-id'
 const STORAGE_KEY_API_KEY = 'robo-analyzer-api-key'
+const STORAGE_KEY_THEME = 'robo-analyzer-theme'
 const _STORAGE_KEY_ACTIVE_TAB = 'robo-analyzer-active-tab'
 void _STORAGE_KEY_ACTIVE_TAB // suppress unused warning
+
+export type Theme = 'dark' | 'light'
 
 // ============================================================================
 // 고정 세션 ID (로그인 미구현 시 사용)
@@ -39,6 +42,11 @@ export const useSessionStore = defineStore('session', () => {
     loadFromStorage(STORAGE_KEY_API_KEY, '')
   )
   
+  // 테마 (dark/light) - 로컬스토리지에서 로드, 기본값 dark
+  const theme = ref<Theme>(
+    (loadFromStorage(STORAGE_KEY_THEME, 'dark') as Theme)
+  )
+  
   // 현재 활성 탭 - 새로고침 시 항상 업로드 탭으로 시작
   const activeTab = ref<string>('upload')
   
@@ -50,6 +58,21 @@ export const useSessionStore = defineStore('session', () => {
   }
   const olapTransferData = ref<OlapTransferData | null>(null)
   
+  // 스키마 검색으로 전달할 검색어
+  const pendingSchemaSearch = ref<string | null>(null)
+  
+  // 자연어(Text2SQL) 검색으로 전달할 질문
+  const pendingNLSearch = ref<string | null>(null)
+  
+  // 소스 파일로 이동할 정보 (파일명 + 라인 번호 + 파일 경로)
+  interface SourceNavigation {
+    procedureName: string
+    lineNumber: number
+    fileName?: string
+    fileDirectory?: string
+  }
+  const pendingSourceNavigation = ref<SourceNavigation | null>(null)
+  
   // 세션 ID 변경 시 로컬스토리지에 저장
   watch(sessionId, (newId) => {
     saveToStorage(STORAGE_KEY_SESSION_ID, newId)
@@ -58,6 +81,12 @@ export const useSessionStore = defineStore('session', () => {
   // API Key 변경 시 로컬스토리지에 저장
   watch(apiKey, (newKey) => {
     saveToStorage(STORAGE_KEY_API_KEY, newKey)
+  }, { immediate: true })
+  
+  // 테마 변경 시 로컬스토리지에 저장 및 DOM에 적용
+  watch(theme, (newTheme) => {
+    saveToStorage(STORAGE_KEY_THEME, newTheme)
+    document.documentElement.setAttribute('data-theme', newTheme)
   }, { immediate: true })
   
   // 새 세션 생성 (로컬스토리지도 초기화)
@@ -106,9 +135,68 @@ export const useSessionStore = defineStore('session', () => {
     return data
   }
   
+  // 스키마 검색으로 이동
+  const navigateToSchemaSearch = (query: string) => {
+    pendingSchemaSearch.value = query
+    activeTab.value = 'graph'
+  }
+  
+  // 스키마 검색 데이터 소비 (사용 후 초기화)
+  const consumeSchemaSearch = () => {
+    const query = pendingSchemaSearch.value
+    pendingSchemaSearch.value = null
+    return query
+  }
+  
+  // 자연어(Text2SQL) 검색으로 이동
+  const navigateToNLSearch = (query: string) => {
+    pendingNLSearch.value = query
+    activeTab.value = 'text2sql'
+  }
+  
+  // 자연어 검색 데이터 소비 (사용 후 초기화)
+  const consumeNLSearch = () => {
+    const query = pendingNLSearch.value
+    pendingNLSearch.value = null
+    return query
+  }
+  
+  // 소스 파일로 이동하며 특정 라인 하이라이팅
+  const navigateToSourceWithLine = (
+    procedureName: string, 
+    lineNumber: number,
+    fileName?: string,
+    fileDirectory?: string
+  ) => {
+    pendingSourceNavigation.value = {
+      procedureName,
+      lineNumber,
+      fileName,
+      fileDirectory
+    }
+    activeTab.value = 'upload'
+  }
+  
+  // 소스 네비게이션 데이터 소비 (사용 후 초기화)
+  const consumeSourceNavigation = () => {
+    const data = pendingSourceNavigation.value
+    pendingSourceNavigation.value = null
+    return data
+  }
+  
   // API Key 설정
   const setApiKey = (key: string) => {
     apiKey.value = key
+  }
+  
+  // 테마 설정
+  const setTheme = (newTheme: Theme) => {
+    theme.value = newTheme
+  }
+  
+  // 테마 토글 (dark <-> light)
+  const toggleTheme = () => {
+    theme.value = theme.value === 'dark' ? 'light' : 'dark'
   }
   
   // 헤더 생성
@@ -129,15 +217,27 @@ export const useSessionStore = defineStore('session', () => {
     sessionId,
     apiKey,
     activeTab,
+    theme,
     olapTransferData,
+    pendingSchemaSearch,
+    pendingNLSearch,
+    pendingSourceNavigation,
     createNewSession,
     clearSession,
     setApiKey,
+    setTheme,
+    toggleTheme,
     setActiveTab,
     goHome,
     getHeaders,
     navigateToOlapWithSQL,
-    consumeOlapTransferData
+    consumeOlapTransferData,
+    navigateToSchemaSearch,
+    consumeSchemaSearch,
+    navigateToNLSearch,
+    consumeNLSearch,
+    navigateToSourceWithLine,
+    consumeSourceNavigation
   }
 })
 

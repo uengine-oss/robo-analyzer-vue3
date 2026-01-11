@@ -87,20 +87,20 @@ watch(isProcessing, (processing) => {
   <!-- 최소화된 상태: 작은 배지만 표시 -->
   <Transition name="fade">
     <button 
-      v-if="isMinimized && (isProcessing || graphStats.totalNodes > 0)"
+      v-if="isMinimized && isProcessing"
       class="minimized-badge"
       @click="openPanel"
     >
-      <span v-if="isProcessing" class="pulse-dot"></span>
+      <span class="pulse-dot"></span>
       <span class="badge-icon">📊</span>
-      <span class="badge-text">{{ graphStats.totalNodes }} 노드</span>
+      <span class="badge-text">인제스천 중...</span>
     </button>
   </Transition>
 
   <!-- 플로팅 패널 -->
   <Transition name="slide-fade">
     <div 
-      v-if="!isMinimized && (isProcessing || graphStats.totalNodes > 0)"
+      v-if="!isMinimized && isProcessing"
       class="floating-progress-panel"
       :class="{ 
         'is-collapsed': isCollapsed, 

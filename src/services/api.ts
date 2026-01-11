@@ -25,7 +25,8 @@ import { getNormalizedUploadPath } from '@/utils/upload'
 // ============================================================================
 
 // API Gateway URL - 모든 마이크로서비스 요청의 단일 진입점
-const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? 'http://localhost:9000'
+// Vite 프록시를 통해 /api/gateway/* 경로로 요청
+const API_GATEWAY_URL = import.meta.env.VITE_API_GATEWAY_URL ?? '/api/gateway'
 
 const ANTLR_BASE_URL = `${API_GATEWAY_URL}/antlr`
 const ROBO_BASE_URL = `${API_GATEWAY_URL}/robo`
@@ -52,6 +53,47 @@ async function handleHttpError(response: Response): Promise<never> {
   console.error(`[API Error] ${response.status} ${response.statusText}`)
   console.error(`[API Error] URL: ${response.url}`)
   console.error(`[API Error] Response body:`, errorText)
+  
+  // 서비스별 친절한 에러 메시지
+  const url = response.url
+  
+  // ANTLR 서비스 관련 에러 처리
+  if (url.includes('/antlr/')) {
+    if (response.status === 404 || response.status === 502 || response.status === 503) {
+      throw new Error(
+        '🔧 ANTLR 파서 서비스가 동작하지 않습니다.\n\n' +
+        '다음을 확인해주세요:\n' +
+        '• ANTLR 서비스가 실행 중인지 확인 (포트 8081)\n' +
+        '• API Gateway가 정상 동작하는지 확인 (포트 9000)\n\n' +
+        '서비스 시작 명령어:\n' +
+        'cd antlr-code-parser && mvn spring-boot:run'
+      )
+    }
+  }
+  
+  // ROBO Analyzer 서비스 관련 에러 처리
+  if (url.includes('/robo/')) {
+    if (response.status === 404 || response.status === 502 || response.status === 503) {
+      throw new Error(
+        '🔧 ROBO Analyzer 서비스가 동작하지 않습니다.\n\n' +
+        '다음을 확인해주세요:\n' +
+        '• robo-analyzer 서비스가 실행 중인지 확인 (포트 5502)\n' +
+        '• API Gateway가 정상 동작하는지 확인 (포트 9000)'
+      )
+    }
+  }
+  
+  // Text2SQL 서비스 관련 에러 처리
+  if (url.includes('/text2sql/')) {
+    if (response.status === 404 || response.status === 502 || response.status === 503) {
+      throw new Error(
+        '🔧 Text2SQL 서비스가 동작하지 않습니다.\n\n' +
+        '다음을 확인해주세요:\n' +
+        '• neo4j-text2sql 서비스가 실행 중인지 확인 (포트 8000)\n' +
+        '• API Gateway가 정상 동작하는지 확인 (포트 9000)'
+      )
+    }
+  }
   
   // JSON 응답에서 detail 필드 추출 시도
   let errorMessage = `HTTP ${response.status}`
@@ -584,6 +626,8 @@ export interface RoboSchemaTableInfo {
   name: string
   table_schema: string  // Renamed from 'schema' in backend
   description: string
+  description_source?: string  // 설명 출처: ddl, procedure, user
+  analyzed_description?: string  // 프로시저 분석에서 도출된 설명
   column_count: number
   project_name?: string
 }
@@ -594,6 +638,8 @@ export interface RoboSchemaColumnInfo {
   dtype: string
   nullable: boolean
   description: string
+  description_source?: string  // 설명 출처: ddl, procedure, user
+  analyzed_description?: string  // 프로시저 분석에서 도출된 설명
 }
 
 export interface RoboSchemaRelationship {
@@ -695,6 +741,68 @@ export const roboSchemaApi = {
     }>
   }> {
     const response = await fetch(`${ROBO_BASE_URL}/graph/related-tables/${encodeURIComponent(tableName)}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 테이블/컬럼이 참조된 프로시저 목록 조회
+   */
+  async getTableReferences(
+    sessionId: string,
+    tableName: string,
+    options?: { schema?: string; columnName?: string }
+  ): Promise<{
+    references: Array<{
+      procedure_name: string
+      procedure_type: string  // PROCEDURE, FUNCTION 등
+      start_line: number
+      access_type: string  // FROM (읽기), WRITES (쓰기)
+      statement_type?: string  // SELECT, INSERT, UPDATE 등
+      statement_line?: number
+      file_name?: string  // 파일명
+      file_directory?: string  // 파일 경로
+    }>
+  }> {
+    const params = new URLSearchParams()
+    if (options?.schema) params.append('schema', options.schema)
+    if (options?.columnName) params.append('column_name', options.columnName)
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/tables/${encodeURIComponent(tableName)}/references?${params}`, {
+      headers: { 'Session-UUID': sessionId }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  
+  /**
+   * 프로시저의 모든 Statement와 AI 설명 조회
+   */
+  async getProcedureStatements(
+    sessionId: string,
+    procedureName: string,
+    fileDirectory?: string
+  ): Promise<{
+    statements: Array<{
+      start_line: number
+      end_line?: number
+      statement_type: string
+      summary?: string
+      ai_description?: string
+    }>
+  }> {
+    const params = new URLSearchParams()
+    if (fileDirectory) params.append('file_directory', fileDirectory)
+    
+    const response = await fetch(`${ROBO_BASE_URL}/schema/procedures/${encodeURIComponent(procedureName)}/statements?${params}`, {
       headers: { 'Session-UUID': sessionId }
     })
     
@@ -846,33 +954,40 @@ export const text2sqlApi = {
   },
 
   /**
-   * 테이블 설명 수정
+   * 테이블 설명 수정 (robo-analyzer 사용)
    */
-  async updateTableDescription(tableName: string, schema: string, description: string): Promise<void> {
-    const response = await fetch(`${TEXT2SQL_BASE_URL}/schema-edit/tables/${tableName}/description`, {
+  async updateTableDescription(
+    tableName: string, 
+    schema: string, 
+    description: string,
+    headers: Headers = {}
+  ): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/schema/tables/${tableName}/description`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify({ name: tableName, schema, description })
     })
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
     }
   },
 
   /**
-   * 컬럼 설명 수정
+   * 컬럼 설명 수정 (robo-analyzer 사용)
    */
   async updateColumnDescription(
     tableName: string, 
     columnName: string, 
     schema: string, 
-    description: string
+    description: string,
+    headers: Headers = {}
   ): Promise<void> {
     const response = await fetch(
-      `${TEXT2SQL_BASE_URL}/schema-edit/tables/${tableName}/columns/${columnName}/description`,
+      `${ROBO_BASE_URL}/schema/tables/${tableName}/columns/${columnName}/description`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({
           table_name: tableName,
           table_schema: schema,
@@ -882,58 +997,68 @@ export const text2sqlApi = {
       }
     )
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
     }
   },
 
   /**
-   * 릴레이션 추가
+   * 릴레이션 추가 (robo-analyzer 사용)
    */
-  async addRelationship(relationship: {
-    from_table: string
-    from_schema: string
-    from_column: string
-    to_table: string
-    to_schema: string
-    to_column: string
-    relationship_type: string
-    description?: string
-  }): Promise<void> {
-    const response = await fetch(`${TEXT2SQL_BASE_URL}/schema-edit/relationships`, {
+  async addRelationship(
+    relationship: {
+      from_table: string
+      from_schema: string
+      from_column: string
+      to_table: string
+      to_schema: string
+      to_column: string
+      relationship_type: string
+      description?: string
+    },
+    headers: Headers = {}
+  ): Promise<void> {
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(relationship)
     })
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
     }
   },
 
   /**
-   * 릴레이션 삭제
+   * 릴레이션 삭제 (robo-analyzer 사용)
    */
-  async removeRelationship(params: {
-    from_table: string
-    from_schema: string
-    from_column: string
-    to_table: string
-    to_schema: string
-    to_column: string
-  }): Promise<void> {
+  async removeRelationship(
+    params: {
+      from_table: string
+      from_schema: string
+      from_column: string
+      to_table: string
+      to_schema: string
+      to_column: string
+    },
+    headers: Headers = {}
+  ): Promise<void> {
     const searchParams = new URLSearchParams(params as Record<string, string>)
-    const response = await fetch(`${TEXT2SQL_BASE_URL}/schema-edit/relationships?${searchParams}`, {
-      method: 'DELETE'
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships?${searchParams}`, {
+      method: 'DELETE',
+      headers
     })
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
     }
   },
 
   /**
-   * 사용자 추가 릴레이션 목록
+   * 사용자 추가 릴레이션 목록 (robo-analyzer 사용)
    */
-  async getUserRelationships(): Promise<{ relationships: unknown[] }> {
-    const response = await fetch(`${TEXT2SQL_BASE_URL}/schema-edit/relationships/user-added`)
+  async getUserRelationships(headers: Headers = {}): Promise<{ relationships: unknown[] }> {
+    const response = await fetch(`${ROBO_BASE_URL}/schema/relationships`, { headers })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`)
     }
@@ -1424,6 +1549,512 @@ export const lineageApi = {
       await handleHttpError(response)
     }
     
+    return response.json()
+  }
+}
+
+// ============================================================================
+// Event Detection API (이벤트 감지 및 조치)
+// ============================================================================
+
+export interface AlertConfig {
+  channels: string[]
+  message: string
+}
+
+export interface ProcessConfig {
+  process_name: string
+  process_params: Record<string, unknown>
+}
+
+export interface EventRule {
+  id: string
+  name: string
+  description: string
+  natural_language_condition: string
+  sql: string
+  check_interval_minutes: number
+  condition_threshold: string
+  action_type: 'alert' | 'process'
+  alert_config?: AlertConfig
+  process_config?: ProcessConfig
+  is_active: boolean
+  last_checked_at: string | null
+  last_triggered_at: string | null
+  trigger_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface EventRuleCreate {
+  name: string
+  description?: string
+  natural_language_condition: string
+  sql: string
+  check_interval_minutes?: number
+  condition_threshold?: string
+  action_type?: 'alert' | 'process'
+  alert_config?: AlertConfig
+  process_config?: ProcessConfig
+}
+
+export interface EventRuleUpdate {
+  name?: string
+  description?: string
+  natural_language_condition?: string
+  sql?: string
+  check_interval_minutes?: number
+  condition_threshold?: string
+  action_type?: 'alert' | 'process'
+  alert_config?: AlertConfig
+  process_config?: ProcessConfig
+  is_active?: boolean
+}
+
+export interface EventExecutionResult {
+  event_id: string
+  executed_at: string
+  sql_result: Record<string, unknown>
+  condition_met: boolean
+  action_taken?: string
+  error?: string
+}
+
+export interface EventNotification {
+  id: string
+  event_id: string
+  event_name: string
+  message: string
+  triggered_at: string
+  acknowledged: boolean
+  data?: Record<string, unknown>
+}
+
+export interface SchedulerStatus {
+  running: boolean
+  active_tasks: number
+  scheduled_events: string[]
+}
+
+// 대화형 이벤트 설정 타입
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+export interface ExtractedEventConfig {
+  name?: string
+  description?: string
+  condition?: string
+  interval?: number
+  threshold?: string
+  action_type?: 'alert' | 'process'
+  process_name?: string
+}
+
+export interface EventChatRequest {
+  message: string
+  history?: ChatMessage[]
+  current_config?: Record<string, unknown>
+  step?: string
+}
+
+export interface EventChatResponse {
+  response: string
+  extracted_config?: ExtractedEventConfig
+  ready_to_confirm: boolean
+  event_created: boolean
+  next_step?: string
+}
+
+// CEP 상태 타입
+export interface CEPStatus {
+  cep_available: boolean
+  cep_status?: {
+    status: string
+    activeRules?: number
+    engine?: string
+    error?: string
+  }
+  local_scheduler_running: boolean
+  local_active_tasks: number
+}
+
+// 시뮬레이션 요청 타입
+export interface SimulationRequest {
+  rule_name: string
+  natural_language_condition: string
+  field_name?: string
+  threshold: number
+  duration_minutes?: number
+  simulated_value: number
+  simulated_duration_minutes?: number
+  station_id?: string
+}
+
+// 시뮬레이션 결과 타입
+export interface SimulationResult {
+  rule_id: string
+  rule_name: string
+  events_generated: number
+  alarms_triggered: number
+  alarms: Array<{
+    rule_id: string
+    rule_name: string
+    triggered_at: string
+    duration: string
+    matching_events: number
+  }>
+  condition_details: {
+    field: string
+    operator: string
+    threshold: number
+    required_duration_minutes: number
+    simulated_value: number
+    simulated_duration_minutes: number
+  }
+}
+
+// SimpleCEP 상태 타입
+export interface SimpleCEPStatus {
+  available: boolean
+  status?: string
+  active_rules?: number
+  total_rules?: number
+  buffered_events?: number
+  engine?: string
+}
+
+export const eventApi = {
+  // ========== 이벤트 규칙 CRUD ==========
+  
+  /**
+   * 이벤트 규칙 목록 조회
+   */
+  async listRules(): Promise<EventRule[]> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 이벤트 규칙 상세 조회
+   */
+  async getRule(eventId: string): Promise<EventRule> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules/${eventId}`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 이벤트 규칙 생성
+   */
+  async createRule(data: EventRuleCreate): Promise<EventRule> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 이벤트 규칙 수정
+   */
+  async updateRule(eventId: string, data: EventRuleUpdate): Promise<EventRule> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules/${eventId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 이벤트 규칙 삭제
+   */
+  async deleteRule(eventId: string): Promise<void> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules/${eventId}`, {
+      method: 'DELETE'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+  },
+
+  /**
+   * 이벤트 규칙 활성/비활성 토글
+   */
+  async toggleRule(eventId: string): Promise<{ message: string; is_active: boolean }> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules/${eventId}/toggle`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 이벤트 규칙 수동 실행
+   */
+  async runRule(eventId: string): Promise<EventExecutionResult> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/rules/${eventId}/run`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  // ========== 알림 관리 ==========
+
+  /**
+   * 알림 목록 조회
+   */
+  async listNotifications(options?: { 
+    limit?: number
+    unacknowledged_only?: boolean 
+  }): Promise<EventNotification[]> {
+    const params = new URLSearchParams()
+    if (options?.limit) params.append('limit', options.limit.toString())
+    if (options?.unacknowledged_only) params.append('unacknowledged_only', 'true')
+    
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/notifications?${params}`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 알림 확인 처리
+   */
+  async acknowledgeNotification(notificationId: string): Promise<void> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/notifications/${notificationId}/acknowledge`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+  },
+
+  /**
+   * 알림 삭제
+   */
+  async deleteNotification(notificationId: string): Promise<void> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/notifications/${notificationId}`, {
+      method: 'DELETE'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+  },
+
+  // ========== 스케줄러 관리 ==========
+
+  /**
+   * 스케줄러 시작
+   */
+  async startScheduler(): Promise<{ message: string; active_rules: number }> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/scheduler/start`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 스케줄러 중지
+   */
+  async stopScheduler(): Promise<{ message: string }> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/scheduler/stop`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 스케줄러 상태 조회
+   */
+  async getSchedulerStatus(): Promise<SchedulerStatus> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/scheduler/status`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  // ========== 대화형 이벤트 설정 ==========
+
+  /**
+   * 대화형 이벤트 설정 API
+   * 
+   * 사용자의 자연어 설명을 분석하여 이벤트 규칙 설정을 도와줍니다.
+   */
+  async chat(request: EventChatRequest): Promise<EventChatResponse> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  // ========== CEP 상태 ==========
+
+  /**
+   * CEP 서비스 상태 조회
+   */
+  async getCepStatus(): Promise<CEPStatus> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/cep/status`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  // ========== 시뮬레이션 ==========
+
+  /**
+   * CEP 시뮬레이션 실행
+   * 
+   * 가짜 타임스탬프 데이터로 10분 지속 조건 등을 테스트합니다.
+   */
+  async runSimulation(request: SimulationRequest): Promise<SimulationResult> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    })
+    if (!response.ok) {
+      const errorText = await response.text()
+      throw new Error(errorText || `HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * SimpleCEP 상태 조회
+   */
+  async getSimpleCepStatus(): Promise<SimpleCEPStatus> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/simple-cep/status`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  }
+}
+
+// ============================================================================
+// Event Templates API (이벤트 템플릿)
+// ============================================================================
+
+export interface EventTemplate {
+  id: string
+  category: string
+  name: string
+  description: string
+  rule_description: string
+  sample_sql: string
+  default_interval_minutes: number
+  default_threshold: string
+  recommended_action: 'alert' | 'process'
+  diagnostic_questions: string[]
+  simple_questions: string[]
+  action_questions: string[]
+  suggested_process?: string
+}
+
+export const eventTemplateApi = {
+  /**
+   * 템플릿 목록 조회
+   */
+  async listTemplates(category?: string): Promise<EventTemplate[]> {
+    const params = category ? `?category=${encodeURIComponent(category)}` : ''
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/templates${params}`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 카테고리 목록 조회
+   */
+  async listCategories(): Promise<{ categories: string[] }> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/templates/categories`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 카테고리별 그룹화된 템플릿 조회
+   */
+  async getTemplatesGrouped(): Promise<Record<string, EventTemplate[]>> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/templates/by-category`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 템플릿 상세 조회
+   */
+  async getTemplate(templateId: string): Promise<EventTemplate> {
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/templates/${templateId}`)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+
+  /**
+   * 템플릿으로 이벤트 규칙 생성
+   */
+  async createRuleFromTemplate(
+    templateId: string,
+    options?: {
+      name?: string
+      description?: string
+      check_interval_minutes?: number
+    }
+  ): Promise<EventRule> {
+    const params = new URLSearchParams()
+    if (options?.name) params.append('name', options.name)
+    if (options?.description) params.append('description', options.description)
+    if (options?.check_interval_minutes) params.append('check_interval_minutes', options.check_interval_minutes.toString())
+    
+    const response = await fetch(`${TEXT2SQL_BASE_URL}/events/templates/${templateId}/create-rule?${params}`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
     return response.json()
   }
 }

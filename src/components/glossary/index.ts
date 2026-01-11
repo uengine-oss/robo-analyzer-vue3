@@ -7,3 +7,5 @@ export { default as GlossaryTab } from './GlossaryTab.vue'
 export { default as TermModal } from './TermModal.vue'
 export { default as GlossaryModal } from './GlossaryModal.vue'
 
+
+

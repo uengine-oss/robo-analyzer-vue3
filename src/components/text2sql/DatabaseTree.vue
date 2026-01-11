@@ -174,8 +174,8 @@ watch(schemas, (newSchemas) => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #1a1f2e 0%, #0f1318 100%);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
 }
 
 .tree-header {
@@ -343,4 +343,6 @@ watch(schemas, (newSchemas) => {
   background: rgba(255, 255, 255, 0.2);
 }
 </style>
+
+
 

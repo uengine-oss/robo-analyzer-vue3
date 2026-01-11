@@ -8,4 +8,7 @@ export { default as IncidentManager } from './IncidentManager.vue'
 export { default as AlertsPage } from './AlertsPage.vue'
 export { default as AlertForm } from './AlertForm.vue'
 export { default as TestCaseModal } from './TestCaseModal.vue'
+export { default as EventDetection } from './EventDetection.vue'
+
+
 

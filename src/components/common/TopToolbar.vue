@@ -64,9 +64,63 @@ const handleUmlDepthChange = (value: number) => {
   window.dispatchEvent(new CustomEvent('umlDepthChange', { detail: value }))
 }
 
+/**
+ * 검색어가 자연어 질문인지 판단
+ * - 한국어: 질문 형태, 동사 포함, 복잡한 조건
+ * - 영어: what, how, show, find, get 등의 질문/명령
+ */
+const isNaturalLanguageQuery = (query: string): boolean => {
+  const q = query.trim().toLowerCase()
+  
+  // 너무 짧으면 단순 키워드로 간주
+  if (q.length < 5) return false
+  
+  // 단일 단어 (테이블명일 가능성 높음)
+  if (!q.includes(' ')) return false
+  
+  // 한국어 자연어 패턴
+  const koreanPatterns = [
+    /\?$/, // 물음표로 끝남
+    /(보여|알려|찾아|계산|조회|검색|분석|비교|확인)/,  // 동사
+    /(해줘|해주세요|할래|할까|하자|인가|인지|는지|을까|를까)/,  // 어미
+    /(얼마|몇|어떤|어느|무엇|왜|어디|언제|누가|누구)/,  // 의문사
+    /(중에서|보다|이상|이하|사이|평균|합계|최대|최소|개수)/,  // 조건/집계
+    /(가장|제일|모든|전체|각각|별로|기준)/  // 수식어
+  ]
+  
+  // 영어 자연어 패턴
+  const englishPatterns = [
+    /^(what|how|show|find|get|list|give|tell|which|where|when|who|count|calculate|compare)/i,
+    /(please|me|all|the|from|with|by|for|in|of|and|or)\b/i,
+    /\?$/
+  ]
+  
+  // 패턴 매칭
+  for (const pattern of [...koreanPatterns, ...englishPatterns]) {
+    if (pattern.test(q)) return true
+  }
+  
+  // 공백으로 구분된 단어가 3개 이상이면 자연어일 가능성 높음
+  const words = q.split(/\s+/).filter(w => w.length > 0)
+  if (words.length >= 3) return true
+  
+  return false
+}
+
 const handleSearch = () => {
-  // 검색 기능 구현 (추후)
-  console.log('Search:', searchQuery.value)
+  if (!searchQuery.value.trim()) return
+  
+  const query = searchQuery.value.trim()
+  
+  if (isNaturalLanguageQuery(query)) {
+    // 자연어 질문 → Text2SQL 탭으로 이동
+    sessionStore.navigateToNLSearch(query)
+  } else {
+    // 단순 키워드 → 스키마 탭으로 이동
+    sessionStore.navigateToSchemaSearch(query)
+  }
+  
+  searchQuery.value = '' // 검색창 초기화
 }
 </script>
 
@@ -124,6 +178,16 @@ const handleSearch = () => {
           <span class="step-text">{{ currentStep }}</span>
         </div>
       </div>
+      
+      <!-- 테마 토글 -->
+      <button 
+        class="icon-btn theme-toggle" 
+        @click="sessionStore.toggleTheme()"
+        :title="sessionStore.theme === 'dark' ? '라이트 모드로 전환' : '다크 모드로 전환'"
+      >
+        <span v-if="sessionStore.theme === 'dark'" class="theme-icon">☀️</span>
+        <span v-else class="theme-icon">🌙</span>
+      </button>
       
       <!-- 알림 -->
       <button class="icon-btn" title="알림">
@@ -380,6 +444,17 @@ const handleSearch = () => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.theme-toggle {
+  .theme-icon {
+    font-size: 18px;
+    transition: transform 0.3s ease;
+  }
+  
+  &:hover .theme-icon {
+    transform: rotate(20deg) scale(1.1);
+  }
 }
 
 .user-profile {

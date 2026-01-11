@@ -3,14 +3,30 @@ import { Handle, Position } from '@vue-flow/core'
 import { computed, inject, ref, watch } from 'vue'
 import type { Text2SqlColumnInfo } from '@/types'
 import { useSchemaCanvasStore } from '@/stores/schemaCanvas'
+import { useSessionStore } from '@/stores/session'
+import { useProjectStore } from '@/stores/project'
+import { roboSchemaApi } from '@/services/api'
 
 interface TableNodeData {
   tableName: string
   schema: string
   description?: string
+  description_source?: 'ddl' | 'procedure' | 'user' | ''  // 설명 출처
   columns: Text2SqlColumnInfo[]
   columnCount: number
   isPrimary?: boolean  // 직접 선택/드래그한 테이블인지 여부
+}
+
+// 프로시저 참조 정보 타입
+interface ProcedureReference {
+  procedure_name: string
+  procedure_type: string
+  start_line: number
+  access_type: string
+  statement_type?: string
+  statement_line?: number
+  file_name?: string
+  file_directory?: string
 }
 
 const props = defineProps<{
@@ -25,6 +41,8 @@ const onLoadRelated = inject<(tableName: string) => void>('onLoadRelated')
 
 // 캔버스 스토어 (실시간 업데이트 감지용)
 const canvasStore = useSchemaCanvasStore()
+const sessionStore = useSessionStore()
+const projectStore = useProjectStore()
 
 // 노드 업데이트 애니메이션 상태
 const isNodeUpdating = ref(false)
@@ -86,6 +104,246 @@ function isColumnUpdating(colName: string): boolean {
 function truncateDescription(desc: string, maxLen = 20): string {
   if (!desc) return ''
   return desc.length > maxLen ? desc.substring(0, maxLen) + '...' : desc
+}
+
+// 설명 출처에 따른 색상 반환 (범례와 일치)
+// procedure: 하늘색, ddl: 초록색, user: 주황색
+const descriptionSourceColors: Record<string, string> = {
+  procedure: '#38bdf8',  // 하늘색 (스토어드 프로시저 분석)
+  ddl: '#22c55e',        // 초록색 (DDL에서 추출)
+  user: '#f59e0b',       // 주황색 (사용자 입력)
+}
+
+// 기본 텍스트 색상 (출처가 없을 때)
+const defaultDescColor = '#c1c2c5'
+
+function getDescriptionColor(source?: string): string {
+  if (!source) return defaultDescColor
+  return descriptionSourceColors[source] || defaultDescColor
+}
+
+function getDescriptionSourceLabel(source?: string): string {
+  if (!source) return ''
+  const labels: Record<string, string> = {
+    ddl: 'DDL',
+    procedure: '분석',
+    user: '사용자'
+  }
+  return labels[source] || ''
+}
+
+// 호버 시 출처 칩 표시 상태
+const isDescriptionHovered = ref(false)
+const isLoadingReferences = ref(false)
+const procedureReferences = ref<ProcedureReference[]>([])
+const showReferencesPopup = ref(false)
+const referencesPopupPosition = ref({ x: 0, y: 0 })
+
+// 방문한 프로시저 참조 추적
+const visitedReferences = ref<Set<string>>(new Set())
+
+// 컬럼 참조 팝업 상태
+const showColumnReferencesPopup = ref(false)
+const columnReferencesPopupPosition = ref({ x: 0, y: 0 })
+const isLoadingColumnReferences = ref(false)
+const columnReferences = ref<ProcedureReference[]>([])
+const activeColumnName = ref<string>('')
+
+// 프로시저 분석 출처인 경우 참조 정보 로드
+async function loadProcedureReferences() {
+  if (props.data.description_source !== 'procedure') return
+  
+  isLoadingReferences.value = true
+  try {
+    const result = await roboSchemaApi.getTableReferences(
+      sessionStore.sessionId,
+      props.data.tableName,
+      { schema: props.data.schema }
+    )
+    procedureReferences.value = result.references
+  } catch (error) {
+    console.error('Failed to load procedure references:', error)
+    procedureReferences.value = []
+  } finally {
+    isLoadingReferences.value = false
+  }
+}
+
+// 출처 칩 클릭 시 팝업 표시
+function handleSourceChipClick(event: MouseEvent) {
+  if (props.data.description_source !== 'procedure') return
+  
+  // 팝업 위치 설정
+  referencesPopupPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  }
+  
+  // 참조 정보 로드 및 팝업 표시
+  loadProcedureReferences()
+  showReferencesPopup.value = true
+  event.stopPropagation()
+}
+
+// 팝업 닫기
+function closeReferencesPopup() {
+  showReferencesPopup.value = false
+}
+
+// 컬럼 참조 팝업 닫기
+function closeColumnReferencesPopup() {
+  showColumnReferencesPopup.value = false
+  activeColumnName.value = ''
+}
+
+// 컬럼 참조 정보 로드
+async function loadColumnReferences(columnName: string) {
+  isLoadingColumnReferences.value = true
+  try {
+    const result = await roboSchemaApi.getTableReferences(
+      sessionStore.sessionId,
+      props.data.tableName,
+      { schema: props.data.schema, columnName }
+    )
+    columnReferences.value = result.references
+  } catch (error) {
+    console.error('Failed to load column references:', error)
+    columnReferences.value = []
+  } finally {
+    isLoadingColumnReferences.value = false
+  }
+}
+
+// 컬럼 설명 (procedure 출처) 클릭 시 팝업 표시
+function handleColumnSourceClick(event: MouseEvent, columnName: string) {
+  // 팝업 위치 설정
+  columnReferencesPopupPosition.value = {
+    x: event.clientX,
+    y: event.clientY
+  }
+  
+  activeColumnName.value = columnName
+  
+  // 참조 정보 로드 및 팝업 표시
+  loadColumnReferences(columnName)
+  showColumnReferencesPopup.value = true
+  event.stopPropagation()
+}
+
+// 프로시저 이름 클릭 시 처리 - 우측 소스 코드 패널에 표시
+function handleProcedureClick(procRef: ProcedureReference) {
+  console.log('[handleProcedureClick] 클릭됨:', procRef)
+  console.log('[handleProcedureClick] procedure_name:', procRef.procedure_name)
+  console.log('[handleProcedureClick] file_name:', procRef.file_name)
+  console.log('[handleProcedureClick] file_directory:', procRef.file_directory)
+  console.log('[handleProcedureClick] statement_line:', procRef.statement_line)
+  
+  const lineNumber = procRef.statement_line || procRef.start_line || 1
+  
+  // 업로드된 파일에서 해당 파일 찾기
+  const allFiles = [...projectStore.uploadedFiles, ...projectStore.uploadedDdlFiles]
+  console.log('[handleProcedureClick] 업로드된 파일 수:', allFiles.length)
+  console.log('[handleProcedureClick] 파일 목록:', allFiles.map(f => f.fileName))
+  
+  let foundFile = null
+  
+  // 1. file_directory로 매칭
+  if (procRef.file_directory) {
+    const normalizedDir = procRef.file_directory.toLowerCase()
+    console.log('[handleProcedureClick] file_directory로 검색:', normalizedDir)
+    foundFile = allFiles.find(f => {
+      const filePath = f.fileName.toLowerCase()
+      const match = filePath === normalizedDir || 
+             filePath.endsWith(normalizedDir) || 
+             normalizedDir.endsWith(filePath) ||
+             filePath.includes(normalizedDir) ||
+             normalizedDir.includes(filePath)
+      if (match) console.log('[handleProcedureClick] file_directory 매칭:', f.fileName)
+      return match
+    })
+  }
+  
+  // 2. file_name으로 매칭
+  if (!foundFile && procRef.file_name) {
+    const normalizedFileName = procRef.file_name.toLowerCase()
+    console.log('[handleProcedureClick] file_name으로 검색:', normalizedFileName)
+    foundFile = allFiles.find(f => {
+      const fileName = f.fileName.split('/').pop()?.toLowerCase() || ''
+      const match = fileName === normalizedFileName
+      if (match) console.log('[handleProcedureClick] file_name 매칭:', f.fileName)
+      return match
+    })
+  }
+  
+  // 3. procedure_name으로 매칭 (fallback)
+  if (!foundFile) {
+    const normalizedProcName = procRef.procedure_name.toLowerCase()
+    console.log('[handleProcedureClick] procedure_name으로 검색:', normalizedProcName)
+    foundFile = allFiles.find(f => {
+      const fileName = f.fileName.split('/').pop() || ''
+      const fileNameWithoutExt = fileName.replace(/\.[^.]+$/, '').toLowerCase()
+      const match = fileNameWithoutExt === normalizedProcName || 
+             fileNameWithoutExt.includes(normalizedProcName) ||
+             normalizedProcName.includes(fileNameWithoutExt)
+      if (match) console.log('[handleProcedureClick] procedure_name 매칭:', f.fileName)
+      return match
+    })
+  }
+  
+  console.log('[handleProcedureClick] 찾은 파일:', foundFile?.fileName)
+  console.log('[handleProcedureClick] 파일 내용 존재:', !!foundFile?.fileContent)
+  
+  // 방문 표시 추가
+  const refKey = `${procRef.procedure_name}-${procRef.statement_line}`
+  visitedReferences.value.add(refKey)
+  
+  if (foundFile && foundFile.fileContent) {
+    // 소스 코드 패널 열기
+    console.log('[handleProcedureClick] 소스 패널 열기 호출')
+    canvasStore.openSourceCodePanel(
+      procRef.file_name || foundFile.fileName.split('/').pop() || '',
+      procRef.file_directory || foundFile.fileName,
+      foundFile.fileContent,
+      lineNumber,
+      procRef.procedure_name
+    )
+    console.log('[handleProcedureClick] 소스 패널 상태:', canvasStore.sourceCodePanel)
+  } else {
+    console.warn(`[handleProcedureClick] 파일을 찾을 수 없음: ${procRef.file_directory || procRef.file_name || procRef.procedure_name}`)
+    // 파일이 없어도 API 응답 데이터만으로 패널 열기 시도
+    if (procRef.file_name || procRef.procedure_name) {
+      console.log('[handleProcedureClick] 파일 없이 패널 열기 시도')
+      canvasStore.openSourceCodePanel(
+        procRef.file_name || procRef.procedure_name || 'Unknown',
+        procRef.file_directory || '',
+        `// 파일 내용을 찾을 수 없습니다.\n// 프로시저: ${procRef.procedure_name}\n// 파일 경로: ${procRef.file_directory || 'N/A'}`,
+        lineNumber,
+        procRef.procedure_name
+      )
+    }
+  }
+  
+  // 팝업은 유지 (closeReferencesPopup() 호출 안함)
+}
+
+// 참조가 방문됐는지 확인
+function isReferenceVisited(ref: ProcedureReference): boolean {
+  const refKey = `${ref.procedure_name}-${ref.statement_line}`
+  return visitedReferences.value.has(refKey)
+}
+
+// 접근 유형 레이블
+function getAccessTypeLabel(accessType: string): string {
+  const labels: Record<string, string> = {
+    'FROM': '읽기',
+    'WRITES': '쓰기'
+  }
+  return labels[accessType] || accessType
+}
+
+// 접근 유형 색상
+function getAccessTypeColor(accessType: string): string {
+  return accessType === 'WRITES' ? '#f59e0b' : '#38bdf8'
 }
 
 // Hover state for showing handles
@@ -157,6 +415,12 @@ function handleLoadRelated(e: Event) {
   onLoadRelated?.(props.data.tableName)
 }
 
+function handleQueryData(e: Event) {
+  e.stopPropagation()
+  // 테이블 데이터 조회 패널 열기
+  canvasStore.queryTableData(props.data.tableName, props.data.schema || 'public')
+}
+
 function onColumnMouseEnter(colName: string) {
   hoveredColumn.value = colName
 }
@@ -197,6 +461,16 @@ function onColumnMouseLeave() {
       <span class="table-node__name">{{ data.tableName }}</span>
       <div class="table-node__actions">
         <button 
+          class="table-node__action-btn table-node__action-btn--query" 
+          @click="handleQueryData"
+          title="테이블 데이터 조회"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+        <button 
           class="table-node__action-btn" 
           @click="handleLoadRelated"
           title="관련 테이블 로드"
@@ -231,10 +505,131 @@ function onColumnMouseLeave() {
       />
     </div>
     
-    <!-- Description -->
-    <div v-if="data.description" class="table-node__description">
+    <!-- Description - 출처에 따른 색상 적용 -->
+    <div 
+      v-if="data.description" 
+      class="table-node__description"
+      :style="{ color: getDescriptionColor(data.description_source) }"
+      :title="`${data.description} ${data.description_source ? `[출처: ${getDescriptionSourceLabel(data.description_source)}]` : ''}`"
+      @mouseenter="isDescriptionHovered = true"
+      @mouseleave="isDescriptionHovered = false"
+    >
+      <!-- 출처 배지 - 프로시저인 경우 호버 시 클릭 가능한 칩으로 변환 -->
+      <span 
+        v-if="data.description_source" 
+        class="table-node__description-badge"
+        :class="{ 
+          'is-clickable': data.description_source === 'procedure',
+          'is-hovered': isDescriptionHovered && data.description_source === 'procedure'
+        }"
+        :style="{ background: getDescriptionColor(data.description_source) }"
+        @click="handleSourceChipClick"
+      >
+        {{ getDescriptionSourceLabel(data.description_source) }}
+        <span v-if="data.description_source === 'procedure' && isDescriptionHovered" class="table-node__source-hint">
+          📍
+        </span>
+      </span>
       {{ data.description }}
     </div>
+    
+    <!-- 컬럼 프로시저 참조 팝업 -->
+    <Teleport to="body">
+      <div 
+        v-if="showColumnReferencesPopup" 
+        class="references-popup"
+        :style="{ left: `${columnReferencesPopupPosition.x}px`, top: `${columnReferencesPopupPosition.y}px` }"
+      >
+        <div class="references-popup__header references-popup__header--column">
+          <span>🔍 {{ activeColumnName }} 컬럼 참조</span>
+          <button class="references-popup__close" @click="closeColumnReferencesPopup">✕</button>
+        </div>
+        <div class="references-popup__content">
+          <div v-if="isLoadingColumnReferences" class="references-popup__loading">
+            로딩 중...
+          </div>
+          <div v-else-if="columnReferences.length === 0" class="references-popup__empty">
+            참조 정보를 찾을 수 없습니다.
+          </div>
+          <div 
+            v-else 
+            v-for="ref in columnReferences" 
+            :key="`${ref.procedure_name}-${ref.statement_line}`"
+            class="references-popup__item"
+            :class="{ 'visited': isReferenceVisited(ref) }"
+            @click="handleProcedureClick(ref)"
+          >
+            <div class="references-popup__proc-name">
+              <span class="references-popup__proc-type">{{ ref.procedure_type }}</span>
+              {{ ref.procedure_name }}
+            </div>
+            <div class="references-popup__details">
+              <span 
+                class="references-popup__access-type"
+                :style="{ color: getAccessTypeColor(ref.access_type) }"
+              >
+                {{ getAccessTypeLabel(ref.access_type) }}
+              </span>
+              <span v-if="ref.statement_type" class="references-popup__stmt-type">
+                {{ ref.statement_type }}
+              </span>
+              <span v-if="ref.statement_line" class="references-popup__line">
+                Line {{ ref.statement_line }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+    
+    <!-- 프로시저 참조 팝업 -->
+    <Teleport to="body">
+      <div 
+        v-if="showReferencesPopup" 
+        class="references-popup"
+        :style="{ left: `${referencesPopupPosition.x}px`, top: `${referencesPopupPosition.y}px` }"
+      >
+        <div class="references-popup__header">
+          <span>📍 참조 프로시저</span>
+          <button class="references-popup__close" @click="closeReferencesPopup">✕</button>
+        </div>
+        <div class="references-popup__content">
+          <div v-if="isLoadingReferences" class="references-popup__loading">
+            로딩 중...
+          </div>
+          <div v-else-if="procedureReferences.length === 0" class="references-popup__empty">
+            참조 정보를 찾을 수 없습니다.
+          </div>
+          <div 
+            v-else 
+            v-for="ref in procedureReferences" 
+            :key="`${ref.procedure_name}-${ref.statement_line}`"
+            class="references-popup__item"
+            :class="{ 'visited': isReferenceVisited(ref) }"
+            @click="handleProcedureClick(ref)"
+          >
+            <div class="references-popup__proc-name">
+              <span class="references-popup__proc-type">{{ ref.procedure_type }}</span>
+              {{ ref.procedure_name }}
+            </div>
+            <div class="references-popup__details">
+              <span 
+                class="references-popup__access-type"
+                :style="{ color: getAccessTypeColor(ref.access_type) }"
+              >
+                {{ getAccessTypeLabel(ref.access_type) }}
+              </span>
+              <span v-if="ref.statement_type" class="references-popup__stmt-type">
+                {{ ref.statement_type }}
+              </span>
+              <span v-if="ref.statement_line" class="references-popup__line">
+                Line {{ ref.statement_line }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
     
     <!-- Columns -->
     <div class="table-node__columns">
@@ -279,14 +674,21 @@ function onColumnMouseLeave() {
           <span v-if="!col.nullable" class="table-node__column-required">*</span>
         </div>
         
-        <!-- 컬럼 설명 (있는 경우만 표시) -->
+        <!-- 컬럼 설명 (있는 경우만 표시) - 출처에 따른 색상 적용 -->
         <div 
           v-if="col.description" 
           class="table-node__column-desc"
-          :class="{ 'is-updating': isColumnUpdating(col.name) }"
-          :title="col.description"
+          :class="{ 
+            'is-updating': isColumnUpdating(col.name),
+            'is-clickable': col.description_source === 'procedure'
+          }"
+          :style="{ color: getDescriptionColor(col.description_source) }"
+          :title="`${col.description} ${col.description_source ? `[출처: ${getDescriptionSourceLabel(col.description_source)}]` : ''}`"
+          @click="col.description_source === 'procedure' ? handleColumnSourceClick($event, col.name) : null"
         >
+          <span v-if="col.description_source" class="table-node__desc-source-dot" :style="{ background: getDescriptionColor(col.description_source) }"></span>
           {{ truncateDescription(col.description) }}
+          <span v-if="col.description_source === 'procedure'" class="table-node__column-link-icon">🔍</span>
         </div>
         
         <!-- Drag hint for FK columns -->
@@ -423,6 +825,10 @@ function onColumnMouseLeave() {
   background: rgba(255, 59, 48, 0.8);
 }
 
+.table-node__action-btn--query:hover {
+  background: rgba(56, 189, 248, 0.8);
+}
+
 /* PK Handle in Header - 받기용 */
 .table-node__pk-handle {
   width: 14px !important;
@@ -451,14 +857,184 @@ function onColumnMouseLeave() {
 
 /* Description - 한 줄로 제한, 넘치면 ... */
 .table-node__description {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 12px;
   font-size: 0.75rem;
-  color: var(--color-text-light, #909296);
+  /* color는 인라인 스타일로 출처에 따라 동적 적용 */
   border-bottom: 1px solid var(--color-border, #373a40);
   background: var(--color-bg-tertiary, #25262b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 설명 출처 배지 */
+.table-node__description-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: #1a1b1e;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  transition: all 0.2s ease;
+}
+
+.table-node__description-badge.is-clickable {
+  cursor: pointer;
+}
+
+.table-node__description-badge.is-clickable:hover,
+.table-node__description-badge.is-hovered {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.5);
+}
+
+.table-node__source-hint {
+  font-size: 0.7rem;
+  animation: hint-pulse 1s ease-in-out infinite;
+}
+
+@keyframes hint-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* 프로시저 참조 팝업 */
+.references-popup {
+  position: fixed;
+  z-index: 10000;
+  min-width: 280px;
+  max-width: 400px;
+  background: var(--color-bg-secondary, #2c2e33);
+  border: 1px solid var(--color-border, #373a40);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  transform: translate(-50%, 10px);
+}
+
+.references-popup__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.references-popup__header--column {
+  background: linear-gradient(135deg, #a78bfa, #8b5cf6);
+}
+
+.references-popup__close {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.references-popup__close:hover {
+  opacity: 1;
+}
+
+.references-popup__content {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.references-popup__loading,
+.references-popup__empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-muted, #909296);
+  font-size: 0.8rem;
+}
+
+.references-popup__item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border, #373a40);
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.references-popup__item:last-child {
+  border-bottom: none;
+}
+
+.references-popup__item:hover {
+  background: var(--color-bg-tertiary, #25262b);
+}
+
+.references-popup__item.visited {
+  background: rgba(56, 189, 248, 0.08);
+  border-left: 3px solid #38bdf8;
+  
+  &::after {
+    content: '✓';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #38bdf8;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+}
+
+.references-popup__proc-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text, #c1c2c5);
+}
+
+.references-popup__proc-type {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #a855f7;
+  background: rgba(168, 85, 247, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.references-popup__details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.7rem;
+}
+
+.references-popup__access-type {
+  font-weight: 600;
+}
+
+.references-popup__stmt-type {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 1px 4px;
+  border-radius: 2px;
+  color: var(--color-text-muted, #909296);
+}
+
+.references-popup__line {
+  color: var(--color-text-muted, #5c5f66);
 }
 
 /* Columns */
@@ -543,10 +1119,13 @@ function onColumnMouseLeave() {
 
 /* 컬럼 설명 표시 */
 .table-node__column-desc {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 2px;
   margin-left: 22px;
   font-size: 0.65rem;
-  color: var(--color-text-muted, #868e96);
+  /* color는 인라인 스타일로 출처에 따라 동적 적용 */
   background: rgba(255, 255, 255, 0.05);
   padding: 2px 6px;
   border-radius: 3px;
@@ -557,10 +1136,33 @@ function onColumnMouseLeave() {
   transition: all 0.3s ease;
 }
 
+/* 컬럼 설명 출처 점 */
+.table-node__desc-source-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .table-node__column-desc.is-updating {
   background: rgba(81, 207, 102, 0.25);
   color: #51cf66;
   animation: desc-highlight 0.5s ease-in-out 3;
+}
+
+.table-node__column-desc.is-clickable {
+  cursor: pointer;
+  
+  &:hover {
+    background: rgba(56, 189, 248, 0.2);
+    transform: scale(1.02);
+  }
+}
+
+.table-node__column-link-icon {
+  font-size: 0.6rem;
+  margin-left: 2px;
+  opacity: 0.7;
 }
 
 @keyframes desc-highlight {

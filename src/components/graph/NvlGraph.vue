@@ -1411,9 +1411,7 @@ defineExpose({
   height: 100%;
   min-height: 400px;
   position: relative;
-  background: 
-    radial-gradient(circle at center, rgba(59, 130, 246, 0.02) 0%, transparent 70%),
-    var(--color-bg-primary);
+  background: var(--color-canvas-bg);
 }
   
 // 빈 상태

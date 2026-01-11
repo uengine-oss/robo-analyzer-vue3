@@ -219,11 +219,12 @@ watch(() => historyStore.items.length, () => {
 
 <style scoped lang="scss">
 $primary: #00d4aa;
-$bg-dark: rgba(15, 20, 25, 0.98);
-$border: rgba(255, 255, 255, 0.08);
-$text-primary: #f0f4f8;
-$text-secondary: #94a3b8;
-$text-muted: #64748b;
+// Theme-aware variables using CSS custom properties
+$bg-dark: var(--color-bg-secondary);
+$border: var(--color-border);
+$text-primary: var(--color-text-bright);
+$text-secondary: var(--color-text-light);
+$text-muted: var(--color-text-muted);
 
 .history-panel {
   display: flex;
@@ -337,20 +338,22 @@ $text-muted: #64748b;
   input {
     width: 100%;
     padding: 10px 14px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid $border;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
     border-radius: 10px;
-    color: $text-primary;
+    color: var(--color-text);
     font-size: 13px;
     transition: border-color 0.2s;
+    box-shadow: var(--shadow-sm);
 
     &::placeholder {
-      color: $text-muted;
+      color: var(--color-text-muted);
     }
 
     &:focus {
       outline: none;
-      border-color: rgba($primary, 0.5);
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
     }
   }
 }
@@ -397,24 +400,26 @@ $text-muted: #64748b;
 .history-item {
   padding: 12px;
   margin-bottom: 6px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid $border;
+  background: var(--chat-card-bg);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
 
   &:hover {
-    background: rgba(0, 0, 0, 0.3);
-    border-color: rgba($primary, 0.2);
+    background: var(--chat-card-hover);
+    border-color: var(--color-accent);
   }
 
   &.active {
-    background: rgba($primary, 0.08);
-    border-color: rgba($primary, 0.3);
+    background: var(--chat-card-hover);
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
   }
 
   &.error {
-    border-left: 3px solid #f87171;
+    border-left: 3px solid var(--color-error);
   }
 }
 
@@ -481,8 +486,8 @@ $text-muted: #64748b;
   code {
     font-size: 11px;
     font-family: 'JetBrains Mono', monospace;
-    color: #38bdf8;
-    background: rgba(0, 0, 0, 0.3);
+    color: var(--chat-code-text, #38bdf8);
+    background: var(--chat-code-bg, #1e293b);
     padding: 4px 8px;
     border-radius: 4px;
     display: inline-block;

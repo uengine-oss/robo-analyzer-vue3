@@ -79,6 +79,10 @@ const activeTab = computed(() =>
   openTabs.value.find(t => t.id === activeTabId.value) || null
 )
 
+// 하이라이팅할 라인 번호
+const highlightedLine = ref<number | null>(null)
+const highlightedLineRef = ref<HTMLElement | null>(null)
+
 // JSON 파일 여부 확인
 const isJsonFile = computed(() => 
   activeTab.value?.fileName.toLowerCase().endsWith('.json') || false
@@ -362,14 +366,158 @@ const activateTab = (tabId: string) => {
   })
 }
 
+// 파일 경로 또는 프로시저 이름으로 파일 찾기
+const findFileByPathOrName = (
+  fileName?: string, 
+  fileDirectory?: string, 
+  procedureName?: string
+) => {
+  // 트리에서 파일 노드들을 재귀적으로 찾기
+  const findAllFileNodes = (node: any, result: any[] = []): any[] => {
+    if (node.type === 'file') {
+      result.push(node)
+    }
+    for (const child of node.children || []) {
+      findAllFileNodes(child, result)
+    }
+    return result
+  }
+  
+  const allFiles = [
+    ...findAllFileNodes(uploadedFileTree.value),
+    ...findAllFileNodes(uploadedDdlTree.value)
+  ]
+  
+  // 1. 파일 경로(directory)로 정확히 매칭
+  if (fileDirectory) {
+    const normalizedDir = fileDirectory.toLowerCase()
+    for (const file of allFiles) {
+      const filePath = (file.relPath || file.name).toLowerCase()
+      // 파일 경로가 directory와 일치하거나 끝나는 경우
+      if (filePath === normalizedDir || 
+          filePath.endsWith(normalizedDir) ||
+          normalizedDir.endsWith(filePath)) {
+        console.log(`파일 찾음 (directory 매칭): ${filePath}`)
+        return file
+      }
+    }
+  }
+  
+  // 2. 파일명으로 매칭
+  if (fileName) {
+    const normalizedFileName = fileName.toLowerCase()
+    for (const file of allFiles) {
+      const filePathName = (file.relPath || file.name).split('/').pop()?.toLowerCase() || ''
+      if (filePathName === normalizedFileName) {
+        console.log(`파일 찾음 (fileName 매칭): ${file.relPath || file.name}`)
+        return file
+      }
+    }
+  }
+  
+  // 3. 프로시저 이름으로 매칭 (fallback)
+  if (procedureName) {
+    const normalizedProcName = procedureName.toLowerCase()
+    for (const file of allFiles) {
+      const filePathName = (file.relPath || file.name).split('/').pop() || ''
+      const fileNameWithoutExt = filePathName.replace(/\.[^.]+$/, '').toLowerCase()
+      
+      if (fileNameWithoutExt === normalizedProcName || 
+          fileNameWithoutExt.includes(normalizedProcName) ||
+          normalizedProcName.includes(fileNameWithoutExt)) {
+        console.log(`파일 찾음 (procedureName 매칭): ${file.relPath || file.name}`)
+        return file
+      }
+    }
+  }
+  
+  console.warn(`파일을 찾을 수 없음: fileName=${fileName}, directory=${fileDirectory}, procedure=${procedureName}`)
+  return null
+}
+
+// 프로시저 파일 열기 및 라인 하이라이팅
+const openProcedureFile = (
+  procedureName: string, 
+  lineNumber: number,
+  fileName?: string,
+  fileDirectory?: string
+) => {
+  const fileNode = findFileByPathOrName(fileName, fileDirectory, procedureName)
+  
+  if (!fileNode || !fileNode.fileContent) {
+    console.warn(`프로시저 파일을 찾을 수 없습니다: ${procedureName}`)
+    return false
+  }
+  
+  const fileFullName = fileNode.relPath || fileNode.name
+  const tabId = `file-${fileFullName}`
+  
+  // 이미 열려있으면 해당 탭으로 이동
+  const existing = openTabs.value.find(t => t.id === tabId)
+  if (existing) {
+    activeTabId.value = tabId
+  } else {
+    // 새 탭 추가
+    openTabs.value.push({
+      id: tabId,
+      fileName: fileFullName,
+      content: fileNode.fileContent,
+      type: 'file'
+    })
+    activeTabId.value = tabId
+  }
+  
+  // 라인 하이라이팅 설정 (영구 유지)
+  highlightedLine.value = lineNumber
+  
+  // DOM 업데이트 후 해당 라인으로 스크롤
+  nextTick(() => {
+    scrollToHighlightedLine()
+  })
+  
+  return true
+}
+
+// 하이라이팅된 라인으로 스크롤
+const scrollToHighlightedLine = () => {
+  if (!highlightedLine.value || !viewerContentRef.value) return
+  
+  const lineElement = viewerContentRef.value.querySelector(`.code-line[data-line="${highlightedLine.value}"]`)
+  if (lineElement) {
+    lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+// pendingSourceNavigation 감지
+watch(
+  () => sessionStore.pendingSourceNavigation,
+  (navigation) => {
+    if (navigation && sessionStore.activeTab === 'upload') {
+      const navData = sessionStore.consumeSourceNavigation()
+      if (navData && navData.procedureName && navData.lineNumber) {
+        // 약간의 지연 후 파일 열기 (탭 전환 완료 대기)
+        setTimeout(() => {
+          openProcedureFile(
+            navData.procedureName, 
+            navData.lineNumber,
+            navData.fileName,
+            navData.fileDirectory
+          )
+        }, 100)
+      }
+    }
+  },
+  { immediate: true }
+)
+
 // 데이터 확인 모달 핸들러
 const handleDataConfirmClose = () => {
   projectStore.handleDataConfirmAction('cancel')
 }
 
-const handleDataConfirmAction = async (action: DataAction) => {
+const handleDataConfirmAction = async (action: DataAction, nameCase: 'original' | 'uppercase' | 'lowercase' = 'original') => {
   try {
-    await projectStore.handleDataConfirmAction(action)
+    await projectStore.handleDataConfirmAction(action, nameCase)
   } catch (error) {
     alert(`처리 실패: ${error}`)
   }
@@ -526,7 +674,19 @@ const handleDataConfirmAction = async (action: DataAction) => {
             <div class="content-wrapper">
               <!-- JSON 파일 -->
               <JsonViewer v-if="isJsonFile" :json="activeTab.content" />
-              <pre v-else class="code-viewer"><code>{{ activeTab.content }}</code></pre>
+              <!-- 코드 파일 (라인 번호 및 하이라이팅 지원) -->
+              <div v-else class="code-viewer-with-lines">
+                <div 
+                  v-for="(line, index) in activeTab.content.split('\n')" 
+                  :key="index"
+                  class="code-line"
+                  :class="{ 'highlighted': highlightedLine === index + 1 }"
+                  :data-line="index + 1"
+                >
+                  <span class="line-number">{{ index + 1 }}</span>
+                  <span class="line-content">{{ line || ' ' }}</span>
+                </div>
+              </div>
             </div>
           </template>
           <template v-else>
@@ -1157,6 +1317,56 @@ const handleDataConfirmAction = async (action: DataAction) => {
   code {
     color: var(--color-text);
   }
+}
+
+.code-viewer-with-lines {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  width: 100%;
+}
+
+.code-line {
+  display: flex;
+  padding: 0 8px;
+  transition: background 0.3s ease;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  
+  &.highlighted {
+    background: rgba(56, 189, 248, 0.3);
+    border-left: 3px solid #38bdf8;
+    
+    .line-number {
+      color: #38bdf8;
+      font-weight: 600;
+      opacity: 1;
+    }
+    
+    .line-content {
+      color: var(--color-text);
+    }
+  }
+}
+
+.line-number {
+  min-width: 50px;
+  padding-right: 16px;
+  text-align: right;
+  color: var(--color-text-muted);
+  user-select: none;
+  opacity: 0.5;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  margin-right: 16px;
+}
+
+.line-content {
+  white-space: pre;
+  color: var(--color-text);
+  flex: 1;
 }
 
 .empty-state {

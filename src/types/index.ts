@@ -26,10 +26,13 @@ export interface ProjectMetadata {
 }
 
 /** 백엔드 API 요청용 메타데이터 */
+export type NameCaseOption = 'original' | 'uppercase' | 'lowercase'
+
 export interface BackendRequestMetadata {
   strategy: Strategy
   target: SourceType
   projectName: string
+  nameCase?: NameCaseOption
 }
 
 // ============================================================================
@@ -232,6 +235,8 @@ export interface Text2SqlTableInfo {
   name: string
   schema: string
   description: string
+  description_source?: 'ddl' | 'procedure' | 'user' | ''  // 설명 출처
+  analyzed_description?: string  // 프로시저 분석에서 도출된 설명
   column_count: number
 }
 
@@ -242,6 +247,8 @@ export interface Text2SqlColumnInfo {
   dtype: string
   nullable: boolean
   description: string
+  description_source?: 'ddl' | 'procedure' | 'user' | ''  // 설명 출처
+  analyzed_description?: string  // 프로시저 분석에서 도출된 설명
 }
 
 /** ReAct SQL 완성도 */

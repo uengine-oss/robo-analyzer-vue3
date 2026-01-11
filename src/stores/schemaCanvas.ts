@@ -53,6 +53,24 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
   const nodes = ref<Node<TableNodeData>[]>([])
   const edges = ref<Edge[]>([])
   
+  // 노드가 변경될 때 엣지 자동 업데이트 (debounced)
+  let edgeUpdateTimeout: ReturnType<typeof setTimeout> | null = null
+  watch(
+    () => nodes.value.length,
+    (newLen, oldLen) => {
+      if (newLen !== oldLen && newLen > 0) {
+        // 여러 테이블이 동시에 추가될 때 한 번만 호출하도록 debounce
+        if (edgeUpdateTimeout) {
+          clearTimeout(edgeUpdateTimeout)
+        }
+        edgeUpdateTimeout = setTimeout(() => {
+          updateEdgesFromRelationships()
+          edgeUpdateTimeout = null
+        }, 300)
+      }
+    }
+  )
+  
   // Table data
   const allTables = ref<Text2SqlTableInfo[]>([])
   const tableColumnsCache = ref<Record<string, Text2SqlColumnInfo[]>>({})
@@ -76,6 +94,63 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
   const selectedTableColumns = ref<Text2SqlColumnInfo[]>([])
   const loading = ref(false)
   const isDetailPanelOpen = ref(false)
+  
+  // Statement 설명 정보
+  interface StatementInfo {
+    start_line: number
+    end_line?: number
+    statement_type: string
+    summary?: string
+    ai_description?: string
+  }
+  
+  // 소스 코드 패널 상태
+  interface SourceCodePanelState {
+    isOpen: boolean
+    fileName: string
+    fileDirectory: string
+    fileContent: string
+    highlightedLine: number
+    procedureName: string
+    statements: StatementInfo[]  // AI 설명 정보
+    isLoadingStatements: boolean
+  }
+  const sourceCodePanel = ref<SourceCodePanelState>({
+    isOpen: false,
+    fileName: '',
+    fileDirectory: '',
+    fileContent: '',
+    highlightedLine: 0,
+    procedureName: '',
+    statements: [],
+    isLoadingStatements: false
+  })
+  
+  // 테이블 데이터 조회 패널 상태
+  interface TableDataPanelState {
+    isOpen: boolean
+    tableName: string
+    schema: string
+    columns: string[]
+    rows: any[][]
+    rowCount: number
+    executionTimeMs: number
+    isLoading: boolean
+    error: string | null
+    limit: number
+  }
+  const tableDataPanel = ref<TableDataPanelState>({
+    isOpen: false,
+    tableName: '',
+    schema: '',
+    columns: [],
+    rows: [],
+    rowCount: 0,
+    executionTimeMs: 0,
+    isLoading: false,
+    error: null,
+    limit: 25
+  })
   
   // Search/filter
   const searchQuery = ref('')
@@ -424,6 +499,8 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
           name: t.name,
           schema: t.table_schema,  // Backend returns table_schema
           description: t.description,
+          description_source: t.description_source,  // 설명 출처
+          analyzed_description: t.analyzed_description,
           column_count: t.column_count
         }))
       } else {
@@ -506,7 +583,9 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
           table_name: c.table_name,
           dtype: c.dtype,
           nullable: c.nullable,
-          description: c.description
+          description: c.description,
+          description_source: c.description_source,
+          analyzed_description: c.analyzed_description
         }))
       } else {
         columns = await text2sqlApi.getTableColumns(tableName, schema || 'public')
@@ -579,6 +658,7 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
         tableName: table.name,
         schema: table.schema || 'public',
         description: table.description,
+        description_source: table.description_source,  // 설명 출처
         columns: columns,
         columnCount: table.column_count,
         isPrimary: isPrimary  // 직접 선택한 테이블 표시
@@ -807,6 +887,173 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     isDetailPanelOpen.value = false
     selectedTable.value = null
     selectedNodeId.value = null
+  }
+  
+  // 소스 코드 패널 열기
+  async function openSourceCodePanel(
+    fileName: string,
+    fileDirectory: string,
+    fileContent: string,
+    highlightedLine: number,
+    procedureName: string
+  ) {
+    // 먼저 패널 열기
+    sourceCodePanel.value = {
+      isOpen: true,
+      fileName,
+      fileDirectory,
+      fileContent,
+      highlightedLine,
+      procedureName,
+      statements: [],
+      isLoadingStatements: true
+    }
+    
+    // Statement 설명 로드
+    try {
+      const result = await roboSchemaApi.getProcedureStatements(
+        sessionId.value,
+        procedureName,
+        fileDirectory
+      )
+      sourceCodePanel.value.statements = result.statements
+      console.log('[openSourceCodePanel] Statement 설명 로드:', result.statements.length, '개')
+    } catch (error) {
+      console.error('[openSourceCodePanel] Statement 설명 로드 실패:', error)
+      sourceCodePanel.value.statements = []
+    } finally {
+      sourceCodePanel.value.isLoadingStatements = false
+    }
+  }
+  
+  // 소스 코드 패널 닫기
+  function closeSourceCodePanel() {
+    sourceCodePanel.value = {
+      isOpen: false,
+      fileName: '',
+      fileDirectory: '',
+      fileContent: '',
+      highlightedLine: 0,
+      procedureName: '',
+      statements: [],
+      isLoadingStatements: false
+    }
+  }
+  
+  // =========================================================================
+  // 테이블 데이터 조회 패널
+  // =========================================================================
+  
+  const TEXT2SQL_API_BASE = import.meta.env.VITE_TEXT2SQL_API_URL || 'http://localhost:8000/text2sql'
+  
+  /**
+   * 테이블 데이터 조회 패널 열기 및 데이터 로드
+   */
+  async function queryTableData(tableName: string, schema: string = 'public', limit: number = 25) {
+    // 패널 열기 및 로딩 상태 설정
+    tableDataPanel.value = {
+      isOpen: true,
+      tableName,
+      schema,
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      executionTimeMs: 0,
+      isLoading: true,
+      error: null,
+      limit
+    }
+    
+    // SQL 생성 (PostgreSQL은 따옴표 없으면 소문자로 처리하므로 소문자로 변환)
+    const schemaLower = schema?.toLowerCase() || 'public'
+    const tableLower = tableName.toLowerCase()
+    const fullTableName = schemaLower !== 'public' 
+      ? `${schemaLower}.${tableLower}` 
+      : tableLower
+    const sql = `SELECT * FROM ${fullTableName} LIMIT ${limit}`
+    
+    try {
+      const response = await fetch(`${TEXT2SQL_API_BASE}/direct-sql/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sql,
+          max_sql_seconds: 30,
+          format_with_ai: false
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('스트림을 읽을 수 없습니다')
+      
+      const decoder = new TextDecoder()
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        const lines = decoder.decode(value).split('\n').filter(l => l.trim())
+        
+        for (const line of lines) {
+          try {
+            const event = JSON.parse(line)
+            
+            switch (event.event) {
+              case 'result':
+                tableDataPanel.value.columns = event.columns
+                tableDataPanel.value.rows = event.rows
+                tableDataPanel.value.rowCount = event.row_count
+                tableDataPanel.value.executionTimeMs = event.execution_time_ms
+                tableDataPanel.value.isLoading = false
+                break
+              case 'error':
+                tableDataPanel.value.error = event.message
+                tableDataPanel.value.isLoading = false
+                break
+              case 'completed':
+                tableDataPanel.value.isLoading = false
+                break
+            }
+          } catch (e) {
+            // JSON 파싱 실패 무시
+          }
+        }
+      }
+    } catch (error) {
+      tableDataPanel.value.error = error instanceof Error ? error.message : '알 수 없는 오류'
+      tableDataPanel.value.isLoading = false
+    }
+  }
+  
+  /**
+   * 테이블 데이터 조회 패널 닫기
+   */
+  function closeTableDataPanel() {
+    tableDataPanel.value = {
+      isOpen: false,
+      tableName: '',
+      schema: '',
+      columns: [],
+      rows: [],
+      rowCount: 0,
+      executionTimeMs: 0,
+      isLoading: false,
+      error: null,
+      limit: 25
+    }
+  }
+  
+  /**
+   * 조회 결과 Limit 변경 후 재조회
+   */
+  function changeTableDataLimit(limit: number) {
+    if (tableDataPanel.value.tableName) {
+      queryTableData(tableDataPanel.value.tableName, tableDataPanel.value.schema, limit)
+    }
   }
   
   function updateEdgesFromRelationships() {
@@ -1074,10 +1321,15 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
   
   async function updateTableDescription(tableName: string, description: string) {
     try {
-      await text2sqlApi.updateTableDescription(tableName, 'public', description)
+      // 테이블의 실제 스키마 찾기
+      const table = allTables.value.find(t => t.name === tableName)
+      const schema = table?.schema || selectedTable.value?.schema || 'public'
+      
+      // 세션 헤더 전달하여 robo-analyzer API 호출
+      const headers = sessionStore.getHeaders()
+      await text2sqlApi.updateTableDescription(tableName, schema, description, headers)
       
       // Update local data
-      const table = allTables.value.find(t => t.name === tableName)
       if (table) {
         table.description = description
       }
@@ -1094,7 +1346,13 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
   
   async function updateColumnDescription(tableName: string, columnName: string, description: string) {
     try {
-      await text2sqlApi.updateColumnDescription(tableName, columnName, 'public', description)
+      // 테이블의 실제 스키마 찾기
+      const table = allTables.value.find(t => t.name === tableName)
+      const schema = table?.schema || selectedTable.value?.schema || 'public'
+      
+      // 세션 헤더 전달하여 robo-analyzer API 호출
+      const headers = sessionStore.getHeaders()
+      await text2sqlApi.updateColumnDescription(tableName, columnName, schema, description, headers)
       
       // Update cache
       if (tableColumnsCache.value[tableName]) {
@@ -1267,6 +1525,8 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     searchQuery,
     dataSource,
     fkVisibility,  // FK 관계 유형별 표시 상태
+    sourceCodePanel,  // 소스 코드 패널 상태
+    tableDataPanel,   // 테이블 데이터 조회 패널 상태
     
     // 시멘틱 검색 상태
     isSemanticSearching,
@@ -1290,6 +1550,11 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     selectNode,
     clearSelection,
     closeDetailPanel,
+    openSourceCodePanel,
+    closeSourceCodePanel,
+    queryTableData,
+    closeTableDataPanel,
+    changeTableDataLimit,
     updateEdgesFromRelationships,
     addRelationship,
     addRelationshipWithCardinality,

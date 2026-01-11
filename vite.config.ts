@@ -18,8 +18,26 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000
-    // proxy 설정 제거됨 - API Gateway(localhost:9000)를 통해 직접 연결
+    port: 3000,
+    proxy: {
+      // 모든 API Gateway 요청을 Spring Gateway(9000)로 프록시
+      '/api/gateway': {
+        target: 'http://localhost:9000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/gateway/, ''),
+        // SSE 스트리밍 지원
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // SSE 요청 감지
+            if (req.url?.includes('/stream/') || req.url?.includes('/react')) {
+              proxyReq.setHeader('Accept', 'text/event-stream')
+              proxyReq.setHeader('Cache-Control', 'no-cache')
+              proxyReq.setHeader('Connection', 'keep-alive')
+            }
+          })
+        }
+      }
+    }
   },
   optimizeDeps: {
     include: ['monaco-editor']

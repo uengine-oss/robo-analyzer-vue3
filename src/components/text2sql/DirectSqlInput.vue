@@ -260,12 +260,13 @@ async function executeSql() {
 <style scoped lang="scss">
 $primary: #00d4aa;
 $primary-dim: rgba(0, 212, 170, 0.15);
-$bg-dark: #0f1419;
-$bg-card: rgba(255, 255, 255, 0.03);
-$border: rgba(255, 255, 255, 0.08);
-$text-primary: #f0f4f8;
-$text-secondary: #94a3b8;
-$text-muted: #64748b;
+// Theme-aware variables using CSS custom properties
+$bg-dark: var(--color-bg);
+$bg-card: var(--chat-card-bg, rgba(255, 255, 255, 0.03));
+$border: var(--color-border);
+$text-primary: var(--color-text-bright);
+$text-secondary: var(--color-text-light);
+$text-muted: var(--color-text-muted);
 $error: #f87171;
 
 .direct-sql-container {

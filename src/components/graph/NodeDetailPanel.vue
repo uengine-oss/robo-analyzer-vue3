@@ -887,10 +887,10 @@ function getNodeSubInfo(node: GraphNode): string {
   left: 0;
   right: 0;
   margin-top: 4px;
-  background: var(--color-bg-primary, #1a1b1e);
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   max-height: 320px;
   overflow-y: auto;
   z-index: 9999;  /* 모든 요소 위에 표시 */
@@ -900,8 +900,8 @@ function getNodeSubInfo(node: GraphNode): string {
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--color-text-light, #909296);
-  background: var(--color-bg-tertiary, #25262b);
+  color: var(--color-text-light);
+  background: var(--color-bg-tertiary);
   border-bottom: 1px solid var(--color-border);
   text-transform: uppercase;
   letter-spacing: 0.5px;
