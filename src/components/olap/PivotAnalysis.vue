@@ -20,6 +20,7 @@ const showCubeEditor = ref(false)
 const cubeEditLoading = ref(false)
 const cubeEditError = ref<string | null>(null)
 const cubeEditSuccess = ref<string | null>(null)
+const dagRedeployLoading = ref(false)
 
 // Visual Modeler State (for current cube)
 const editCubeName = ref('')
@@ -169,6 +170,39 @@ async function saveCubeChanges() {
     cubeEditError.value = e.message
   } finally {
     cubeEditLoading.value = false
+  }
+}
+
+// Redeploy DAG to Airflow
+async function redeployDAG() {
+  if (!store.currentCube) {
+    cubeEditError.value = '큐브를 선택해주세요'
+    return
+  }
+  
+  if (!confirm('DAG를 재생성하시겠습니까?\n기존 DAG가 덮어씌워집니다.')) {
+    return
+  }
+  
+  dagRedeployLoading.value = true
+  cubeEditError.value = null
+  cubeEditSuccess.value = null
+  
+  try {
+    // Force redeploy to Airflow
+    const result = await olapApi.deployETLPipeline(store.currentCube, true)
+    cubeEditSuccess.value = `DAG가 성공적으로 재생성되었습니다! (DAG ID: ${result.dag_id || store.currentCube})`
+    
+    console.log('DAG redeployment result:', result)
+    
+    setTimeout(() => {
+      cubeEditSuccess.value = null
+    }, 3000)
+  } catch (e: any) {
+    console.error('DAG redeployment failed:', e)
+    cubeEditError.value = `DAG 재생성 실패: ${e.message}`
+  } finally {
+    dagRedeployLoading.value = false
   }
 }
 
@@ -625,11 +659,19 @@ function copySQL() {
         </div>
         
         <footer class="modal-footer">
-          <button class="btn btn-secondary" @click="showCubeEditor = false">취소</button>
-          <button class="btn btn-primary" @click="saveCubeChanges" :disabled="cubeEditLoading">
-            <span v-if="cubeEditLoading" class="spinner-sm"></span>
-            <span v-else>💾 저장</span>
-          </button>
+          <div class="footer-left">
+            <button class="btn btn-dag-redeploy" @click="redeployDAG" :disabled="dagRedeployLoading">
+              <span v-if="dagRedeployLoading" class="spinner-sm"></span>
+              <span v-else>🔄 DAG 재생성</span>
+            </button>
+          </div>
+          <div class="footer-right">
+            <button class="btn btn-secondary" @click="showCubeEditor = false">취소</button>
+            <button class="btn btn-primary" @click="saveCubeChanges" :disabled="cubeEditLoading">
+              <span v-if="cubeEditLoading" class="spinner-sm"></span>
+              <span v-else>💾 저장</span>
+            </button>
+          </div>
         </footer>
       </div>
     </div>
@@ -1348,10 +1390,56 @@ function copySQL() {
 
 .modal-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid var(--color-border);
+  
+  .footer-left {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .footer-right {
+    display: flex;
+    gap: 10px;
+  }
+}
+
+.btn-dag-redeploy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .spinner-sm {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
 }
 </style>
 

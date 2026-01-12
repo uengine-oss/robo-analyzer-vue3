@@ -12,18 +12,30 @@
 
     <!-- 채팅 컨테이너 (자연어/LangChain 모드) -->
     <div v-else class="chat-container">
-      <!-- 우상단 모드 선택기 -->
-      <div class="mode-selector-container">
+      <!-- 우상단 모드 선택기 및 새 쿼리 버튼 -->
+      <div class="top-controls">
         <button 
-          v-for="opt in modeOptions" 
-          :key="opt.value"
-          :class="['mode-option', { active: mode === opt.value }]"
-          @click="mode = opt.value"
-          :title="opt.desc"
+          v-if="chatMessages.length > 0 || reactStore.isRunning || langchainStore.isRunning"
+          class="new-query-btn"
+          @click="startNewQuery"
+          title="새 쿼리 시작"
         >
-          <span class="opt-icon">{{ opt.icon }}</span>
-          <span class="opt-label">{{ opt.label }}</span>
+          <span class="btn-icon">✨</span>
+          <span class="btn-label">새 쿼리</span>
         </button>
+        
+        <div class="mode-selector-container">
+          <button 
+            v-for="opt in modeOptions" 
+            :key="opt.value"
+            :class="['mode-option', { active: mode === opt.value }]"
+            @click="mode = opt.value"
+            :title="opt.desc"
+          >
+            <span class="opt-icon">{{ opt.icon }}</span>
+            <span class="opt-label">{{ opt.label }}</span>
+          </button>
+        </div>
       </div>
       <!-- 채팅 메시지 영역 -->
       <div class="chat-messages" ref="chatContainer" @scroll="handleScroll">
@@ -411,6 +423,11 @@
               <input v-model.number="maxSqlSeconds" type="number" min="1" max="3600" />
             </div>
             <div class="setting-row">
+              <label>캐시 사용</label>
+              <input v-model="useCache" type="checkbox" />
+              <span class="setting-hint">동일 질문 시 빠른 응답</span>
+            </div>
+            <div class="setting-row">
               <label>Raw XML(디버그)</label>
               <input v-model="debugRawXml" type="checkbox" />
             </div>
@@ -559,6 +576,7 @@ const inputText = ref('')
 const showSettings = ref(false)
 const maxToolCalls = ref(30)
 const maxSqlSeconds = ref(60)
+const useCache = ref(true)  // 캐시 사용 여부
 const debugRawXml = ref(false)
 const expandedMessages = ref<Set<string>>(new Set())
 const expandedStepDetails = ref<Set<string>>(new Set())
@@ -809,6 +827,33 @@ function setQuestion(q: string) {
   inputRef.value?.focus()
 }
 
+// 새 쿼리 시작 - 모든 상태 초기화
+function startNewQuery() {
+  // 진행 중인 작업 취소
+  if (reactStore.isRunning) {
+    reactStore.cancel()
+  }
+  if (langchainStore.isRunning) {
+    langchainStore.cancel()
+  }
+  
+  // 채팅 메시지 초기화
+  chatMessages.value = []
+  
+  // 입력창 초기화 및 포커스
+  inputText.value = ''
+  nextTick(() => {
+    inputRef.value?.focus()
+  })
+  
+  // SQL 디스플레이 초기화
+  sqlDisplayLines.value = []
+  previousSqlLines.value = []
+  
+  // 스크롤 상태 초기화
+  isUserScrolledUp.value = false
+}
+
 function autoResize(e: Event) {
   const target = e.target as HTMLTextAreaElement
   target.style.height = 'auto'
@@ -841,7 +886,8 @@ async function handleSubmit() {
     await reactStore.start(text, {
       maxToolCalls: maxToolCalls.value,
       maxSqlSeconds: maxSqlSeconds.value,
-      debugStreamRawXmlTokens: debugRawXml.value
+      debugStreamRawXmlTokens: debugRawXml.value,
+      useCache: useCache.value
     })
   }
 }
@@ -1141,13 +1187,52 @@ $badge-error: #f87171;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Mode Selector (우상단 세그먼트 버튼)
+// Top Controls (우상단 컨트롤 영역)
 // ═══════════════════════════════════════════════════════════════
-.mode-selector-container {
+.top-controls {
   position: absolute;
   top: 12px;
   right: 24px;
   z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.new-query-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 20px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  
+  .btn-icon {
+    font-size: 14px;
+  }
+  
+  .btn-label {
+    font-size: 12px;
+  }
+  
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.mode-selector-container {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -2328,8 +2413,8 @@ $badge-error: #f87171;
 // ═══════════════════════════════════════════════════════════════
 .sql-side-panel {
   width: 340px;
-  border-left: 1px solid $border-subtle;
-  background: linear-gradient(180deg, rgba(15, 20, 25, 0.95) 0%, rgba(26, 31, 46, 0.95) 100%);
+  border-left: 1px solid var(--sql-panel-border, $border-subtle);
+  background: var(--sql-panel-bg);
   backdrop-filter: blur(20px);
   display: flex;
   flex-direction: column;
@@ -2340,13 +2425,13 @@ $badge-error: #f87171;
     align-items: center;
     justify-content: space-between;
     padding: 16px 20px;
-    border-bottom: 1px solid $border-subtle;
+    border-bottom: 1px solid var(--sql-panel-border, $border-subtle);
 
     h3 {
       margin: 0;
       font-size: 14px;
       font-weight: 700;
-      color: $text-primary;
+      color: var(--color-text-bright);
       letter-spacing: 0.02em;
     }
   }
@@ -2361,15 +2446,15 @@ $badge-error: #f87171;
     }
 
     &::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--color-border);
       border-radius: 2px;
     }
 
     pre {
       margin: 0;
       padding: 16px;
-      background: var(--chat-code-bg);
-      border: 1px solid $border-subtle;
+      background: var(--sql-block-bg);
+      border: 1px solid var(--sql-block-border);
       border-radius: 12px;
       overflow-x: auto;
       white-space: pre-wrap;
@@ -2379,8 +2464,8 @@ $badge-error: #f87171;
     .sql-diff {
       margin: 0;
       padding: 16px;
-      background: var(--chat-code-bg);
-      border: 1px solid $border-subtle;
+      background: var(--sql-block-bg);
+      border: 1px solid var(--sql-block-border);
       border-radius: 12px;
       overflow-x: auto;
       white-space: pre-wrap;
@@ -2395,24 +2480,24 @@ $badge-error: #f87171;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 12px;
       line-height: 1.6;
-      color: $badge-tool;
+      color: var(--sql-text);
     }
 
     .sql-line.added {
-      background: rgba($badge-success, 0.14);
-      border-left: 3px solid $badge-success;
+      background: rgba(52, 211, 153, 0.14);
+      border-left: 3px solid var(--color-success);
     }
 
     .sql-line.removed {
-      background: rgba($badge-error, 0.14);
-      border-left: 3px solid $badge-error;
+      background: rgba(248, 113, 113, 0.14);
+      border-left: 3px solid var(--color-error);
       text-decoration: line-through;
       opacity: 0.75;
     }
 
     .sql-line.modified {
-      background: rgba($badge-warning, 0.14);
-      border-left: 3px solid $badge-warning;
+      background: rgba(251, 191, 36, 0.14);
+      border-left: 3px solid var(--color-warning);
     }
 
     // TransitionGroup name="sql-line"
@@ -2435,7 +2520,7 @@ $badge-error: #f87171;
     code {
       font-size: 12px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
-      color: $badge-tool;
+      color: var(--sql-text);
       line-height: 1.6;
     }
   }

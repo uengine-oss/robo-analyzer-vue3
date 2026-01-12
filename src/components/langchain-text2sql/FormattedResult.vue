@@ -292,12 +292,14 @@ function getComplexityLevel(score: number): string {
 
 // SQL Block
 .sql-block {
-  background: #1e1e2e;
+  background: var(--sql-block-bg, #1e1e2e);
+  border: 1px solid var(--sql-block-border, transparent);
   border-radius: 8px;
   overflow: hidden;
   
   &.compact {
     background: transparent;
+    border: none;
     
     .sql-code {
       padding: 0;
@@ -310,8 +312,8 @@ function getComplexityLevel(score: number): string {
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.05);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--color-bg-hover, rgba(255, 255, 255, 0.05));
+    border-bottom: 1px solid var(--sql-block-border, rgba(255, 255, 255, 0.1));
     
     .sql-icon {
       font-size: 14px;
@@ -319,7 +321,7 @@ function getComplexityLevel(score: number): string {
     
     span {
       font-weight: 500;
-      color: #a6adc8;
+      color: var(--color-text-light);
       font-size: 12px;
     }
     
@@ -345,33 +347,37 @@ function getComplexityLevel(score: number): string {
     font-family: 'Fira Code', 'Monaco', 'Consolas', monospace;
     font-size: 12px;
     line-height: 1.6;
-    color: #cdd6f4;
+    color: var(--sql-text, #cdd6f4);
     white-space: pre-wrap;
     word-break: break-word;
   }
 }
 
-// SQL Syntax Highlighting
+// SQL Syntax Highlighting (uses CSS variables for theme support)
 .token-keyword {
-  color: #cba6f7;
+  color: var(--sql-keyword, #cba6f7);
   font-weight: 600;
 }
 
 .token-string {
-  color: #a6e3a1;
+  color: var(--sql-string, #a6e3a1);
 }
 
 .token-number {
-  color: #fab387;
+  color: var(--sql-number, #fab387);
 }
 
 .token-comment {
-  color: #6c7086;
+  color: var(--sql-comment, #6c7086);
   font-style: italic;
 }
 
 .token-text {
-  color: #cdd6f4;
+  color: var(--sql-text, #cdd6f4);
+}
+
+.token-identifier {
+  color: var(--sql-identifier, #89dceb);
 }
 
 // Table Block

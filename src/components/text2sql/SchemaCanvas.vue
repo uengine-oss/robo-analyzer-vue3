@@ -91,10 +91,22 @@ function formatCell(value: unknown): string {
   return str.length > 100 ? str.substring(0, 100) + '...' : str
 }
 
+// 클립보드에 복사
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    console.log('SQL 복사됨:', text)
+  }).catch(err => {
+    console.error('클립보드 복사 실패:', err)
+  })
+}
+
 // 스키마 폴더 확장 상태
 const expandedSchemas = ref<Record<string, boolean>>({
   public: true  // 기본적으로 public 스키마는 펼쳐서 표시
 })
+
+// SQL 쿼리 표시 토글
+const showSqlQuery = ref(false)
 
 function toggleSchema(schema: string) {
   expandedSchemas.value[schema] = !expandedSchemas.value[schema]
@@ -1038,6 +1050,16 @@ async function handleRefresh() {
             </span>
           </div>
           <div class="table-data-panel__actions">
+            <!-- SQL 토글 버튼 -->
+            <button 
+              v-if="store.tableDataPanel.executedSql"
+              class="sql-toggle-btn" 
+              :class="{ active: showSqlQuery }"
+              @click="showSqlQuery = !showSqlQuery" 
+              :title="showSqlQuery ? 'SQL 숨기기' : 'SQL 보기'"
+            >
+              {{ showSqlQuery ? '▼' : '▶' }} SQL
+            </button>
             <label class="limit-selector">
               <span>Limit:</span>
               <select 
@@ -1055,6 +1077,18 @@ async function handleRefresh() {
             </button>
             <button class="close-btn" @click="store.closeTableDataPanel" title="닫기">×</button>
           </div>
+        </div>
+        
+        <!-- 실행된 SQL 표시 (펼쳤을 때만) -->
+        <div v-if="showSqlQuery && store.tableDataPanel.executedSql" class="table-data-panel__sql">
+          <code class="sql-code">{{ store.tableDataPanel.executedSql }}</code>
+          <button 
+            class="sql-copy-btn" 
+            @click="copyToClipboard(store.tableDataPanel.executedSql || '')"
+            title="SQL 복사"
+          >
+            📋
+          </button>
         </div>
         
         <div class="table-data-panel__content">
@@ -2420,6 +2454,80 @@ async function handleRefresh() {
     .close-btn {
       font-size: 1.2rem;
       line-height: 1;
+    }
+  }
+  
+  &__sql {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px;
+    background: var(--color-bg, #1a1b26);
+    border-bottom: 1px solid var(--color-border, #373a40);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    flex-shrink: 0;
+    
+    .sql-code {
+      flex: 1;
+      font-size: 0.8rem;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      overflow-x: auto;
+      white-space: nowrap;
+      
+      &::-webkit-scrollbar {
+        height: 4px;
+      }
+      
+      &::-webkit-scrollbar-thumb {
+        background: rgba(56, 189, 248, 0.3);
+        border-radius: 2px;
+      }
+    }
+    
+    .sql-copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 4px;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+      flex-shrink: 0;
+      
+      &:hover {
+        opacity: 1;
+      }
+    }
+  }
+  
+  // SQL 토글 버튼 (헤더 actions에 위치)
+  .sql-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--color-bg, #1a1b26);
+    border: 1px solid var(--color-border, #373a40);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-light, #909296);
+    cursor: pointer;
+    transition: all 0.15s;
+    
+    &:hover {
+      background: var(--color-bg-tertiary, #1e1f23);
+      border-color: var(--color-text-muted, #5c5f66);
+    }
+    
+    &.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
     }
   }
   

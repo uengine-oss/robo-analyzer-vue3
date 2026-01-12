@@ -58,6 +58,15 @@ export const useSessionStore = defineStore('session', () => {
   }
   const olapTransferData = ref<OlapTransferData | null>(null)
   
+  // 감시 에이전트로 전달할 쿼리 정보
+  interface WatchAgentTransferData {
+    question: string
+    sql: string
+    rowCount?: number | null
+    executionTimeMs?: number | null
+  }
+  const watchAgentTransferData = ref<WatchAgentTransferData | null>(null)
+  
   // 스키마 검색으로 전달할 검색어
   const pendingSchemaSearch = ref<string | null>(null)
   
@@ -132,6 +141,19 @@ export const useSessionStore = defineStore('session', () => {
   const consumeOlapTransferData = () => {
     const data = olapTransferData.value
     olapTransferData.value = null
+    return data
+  }
+  
+  // 감시 에이전트로 쿼리 정보 전달하며 이동
+  const navigateToWatchAgentWithQuery = (data: WatchAgentTransferData) => {
+    watchAgentTransferData.value = data
+    activeTab.value = 'watch-agent'
+  }
+  
+  // 감시 에이전트 전달 데이터 소비 (사용 후 초기화)
+  const consumeWatchAgentTransferData = () => {
+    const data = watchAgentTransferData.value
+    watchAgentTransferData.value = null
     return data
   }
   
@@ -219,6 +241,7 @@ export const useSessionStore = defineStore('session', () => {
     activeTab,
     theme,
     olapTransferData,
+    watchAgentTransferData,
     pendingSchemaSearch,
     pendingNLSearch,
     pendingSourceNavigation,
@@ -232,6 +255,8 @@ export const useSessionStore = defineStore('session', () => {
     getHeaders,
     navigateToOlapWithSQL,
     consumeOlapTransferData,
+    navigateToWatchAgentWithQuery,
+    consumeWatchAgentTransferData,
     navigateToSchemaSearch,
     consumeSchemaSearch,
     navigateToNLSearch,

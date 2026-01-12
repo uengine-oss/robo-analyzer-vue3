@@ -66,18 +66,60 @@
             </div>
             <div v-if="item.row_count !== null" class="item-meta">
               {{ item.row_count }}행 · {{ Math.round(item.execution_time_ms || 0) }}ms
+              <span v-if="item.steps_count" class="steps-badge">{{ item.steps_count }} 스텝</span>
             </div>
             
-            <!-- OLAP 내보내기 버튼 (복잡한 쿼리용) -->
-            <button 
-              v-if="item.final_sql && isComplexQuery(item.final_sql)"
-              class="export-olap-btn"
-              @click.stop="exportToOlap(item)"
-              title="OLAP으로 내보내기 - DW 스키마 설계"
-            >
-              <IconBarChart :size="12" />
-              <span>OLAP</span>
-            </button>
+            <!-- 하단 버튼 영역 -->
+            <div class="item-actions">
+              <!-- 세부사항 보기 버튼 -->
+              <button 
+                v-if="item.steps && item.steps.length > 0"
+                class="detail-btn"
+                @click.stop="toggleDetails(item.id)"
+                :title="expandedItems.has(item.id) ? '세부사항 접기' : '세부사항 보기'"
+              >
+                <IconChevron :size="12" :class="{ expanded: expandedItems.has(item.id) }" />
+                <span>{{ expandedItems.has(item.id) ? '접기' : '세부사항' }}</span>
+              </button>
+              
+              <!-- OLAP 내보내기 버튼 (복잡한 쿼리용) -->
+              <button 
+                v-if="item.final_sql && isComplexQuery(item.final_sql)"
+                class="export-olap-btn"
+                @click.stop="exportToOlap(item)"
+                title="OLAP으로 내보내기 - DW 스키마 설계"
+              >
+                <IconBarChart :size="12" />
+                <span>OLAP</span>
+              </button>
+              
+              <!-- 감시 에이전트 생성 버튼 -->
+              <button 
+                v-if="item.final_sql && item.status === 'completed'"
+                class="create-agent-btn"
+                @click.stop="createAgentFromQuery(item)"
+                title="이 쿼리로 감시 에이전트 생성"
+              >
+                <IconWatchAgent :size="12" />
+                <span>감시 에이전트</span>
+              </button>
+            </div>
+            
+            <!-- 세부사항 펼침 영역 -->
+            <div v-if="expandedItems.has(item.id) && item.steps" class="steps-detail">
+              <div v-for="(step, idx) in item.steps" :key="idx" class="step-item">
+                <div class="step-header">
+                  <span class="step-number">{{ idx + 1 }}</span>
+                  <span v-if="step.tool_name" class="step-tool">{{ step.tool_name }}</span>
+                </div>
+                <div v-if="step.reasoning" class="step-reasoning">
+                  {{ truncateText(step.reasoning, 200) }}
+                </div>
+                <div v-if="step.tool_result" class="step-result">
+                  <pre>{{ truncateText(step.tool_result, 300) }}</pre>
+                </div>
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -103,10 +145,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useHistoryStore, type QueryHistoryItem } from '@/stores/text2sql'
 import { useSessionStore } from '@/stores/session'
-import { IconHistory, IconTrash, IconRefresh, IconX, IconBarChart } from '@/components/icons'
+import { IconHistory, IconTrash, IconRefresh, IconX, IconBarChart, IconWatchAgent, IconChevronDown as IconChevron } from '@/components/icons'
 
 // Props
 defineProps<{
@@ -123,6 +165,16 @@ const historyStore = useHistoryStore()
 const sessionStore = useSessionStore()
 const searchQuery = ref('')
 const listRef = ref<HTMLElement | null>(null)
+const expandedItems = reactive(new Set<number>())
+
+// 세부사항 토글
+function toggleDetails(itemId: number) {
+  if (expandedItems.has(itemId)) {
+    expandedItems.delete(itemId)
+  } else {
+    expandedItems.add(itemId)
+  }
+}
 
 // 복잡한 쿼리 판별 (1개 이상 JOIN, 서브쿼리 등)
 function isComplexQuery(sql: string | null): boolean {
@@ -152,6 +204,24 @@ function exportToOlap(item: QueryHistoryItem) {
     return
   }
   sessionStore.navigateToOlapWithSQL(item.question, item.final_sql)
+}
+
+// 에이전트 생성
+function createAgentFromQuery(item: QueryHistoryItem) {
+  console.log('[Agent Create] item:', item)
+  
+  if (!item.final_sql) {
+    alert('SQL 쿼리가 없습니다.')
+    return
+  }
+  
+  // 감시 에이전트 화면으로 이동하면서 쿼리 정보 전달
+  sessionStore.navigateToWatchAgentWithQuery({
+    question: item.question,
+    sql: item.final_sql,
+    rowCount: item.row_count,
+    executionTimeMs: item.execution_time_ms
+  })
 }
 
 // Debounced search
@@ -504,20 +574,29 @@ $text-muted: var(--color-text-muted);
   font-family: 'JetBrains Mono', monospace;
 }
 
-.export-olap-btn {
+.item-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.export-olap-btn, .create-agent-btn {
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
   padding: 6px 10px;
-  background: linear-gradient(135deg, rgba(34, 139, 230, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
-  border: 1px solid rgba(34, 139, 230, 0.3);
   border-radius: 6px;
-  color: #38bdf8;
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.export-olap-btn {
+  background: linear-gradient(135deg, rgba(34, 139, 230, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
+  border: 1px solid rgba(34, 139, 230, 0.3);
+  color: #38bdf8;
 
   &:hover {
     background: linear-gradient(135deg, rgba(34, 139, 230, 0.25) 0%, rgba(124, 58, 237, 0.25) 100%);
@@ -527,6 +606,123 @@ $text-muted: var(--color-text-muted);
 
   svg {
     color: #38bdf8;
+  }
+}
+
+.create-agent-btn {
+  background: linear-gradient(135deg, rgba(0, 212, 170, 0.15) 0%, rgba(16, 185, 129, 0.15) 100%);
+  border: 1px solid rgba(0, 212, 170, 0.3);
+  color: #00d4aa;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(0, 212, 170, 0.25) 0%, rgba(16, 185, 129, 0.25) 100%);
+    border-color: rgba(0, 212, 170, 0.5);
+    box-shadow: 0 2px 8px rgba(0, 212, 170, 0.2);
+  }
+
+  svg {
+    color: #00d4aa;
+  }
+}
+
+.detail-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: $text-secondary;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  svg {
+    transition: transform 0.2s ease;
+    
+    &.expanded {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.steps-badge {
+  margin-left: 6px;
+  padding: 2px 6px;
+  background: rgba($primary, 0.15);
+  border-radius: 4px;
+  font-size: 9px;
+  color: $primary;
+}
+
+.steps-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.step-item {
+  margin-bottom: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border-left: 3px solid $primary;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.step-number {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $primary;
+  color: #000;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.step-tool {
+  padding: 2px 8px;
+  background: rgba(139, 92, 246, 0.2);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #a78bfa;
+}
+
+.step-reasoning {
+  font-size: 11px;
+  color: $text-secondary;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.step-result {
+  pre {
+    margin: 0;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    color: $text-muted;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 100px;
+    overflow-y: auto;
   }
 }
 

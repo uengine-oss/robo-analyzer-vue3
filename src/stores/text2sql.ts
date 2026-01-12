@@ -329,6 +329,12 @@ export const useReactStore = defineStore('react', () => {
             currentPhase.value = 'idle'
             return
           }
+          case 'cache_hit': {
+            // 캐시 히트 알림 - 다음 이벤트(complete)에서 실제 결과 처리
+            console.log('Cache hit:', event.message, 'Hit count:', event.hit_count)
+            break
+          }
+          case 'complete':
           case 'completed': {
             applyResponse(event.response)
             status.value = 'completed'
@@ -363,6 +369,7 @@ export const useReactStore = defineStore('react', () => {
       maxToolCalls?: number
       maxSqlSeconds?: number
       debugStreamRawXmlTokens?: boolean
+      useCache?: boolean
     }
   ) {
     cancelOngoing()
@@ -379,7 +386,8 @@ export const useReactStore = defineStore('react', () => {
         question,
         max_tool_calls: options?.maxToolCalls,
         max_sql_seconds: options?.maxSqlSeconds,
-        debug_stream_xml_tokens: debugStreamRawXmlTokens.value
+        debug_stream_xml_tokens: debugStreamRawXmlTokens.value,
+        use_cache: options?.useCache ?? true
       },
       controller
     )
@@ -473,6 +481,16 @@ export const useReactStore = defineStore('react', () => {
 // History 스토어
 // ============================================================================
 
+// 스텝 상세 정보 타입
+export interface QueryStep {
+  tool_name?: string
+  tool_input?: Record<string, unknown>
+  tool_result?: string
+  reasoning?: string
+  timestamp?: string
+  iteration?: number
+}
+
 export interface QueryHistoryItem {
   id: number
   question: string
@@ -487,6 +505,7 @@ export interface QueryHistoryItem {
   created_at: string
   updated_at: string
   metadata: Record<string, unknown> | null
+  steps: QueryStep[] | null  // 전체 도구 호출 과정
 }
 
 export interface QueryHistoryResponse {

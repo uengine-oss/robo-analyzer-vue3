@@ -18,6 +18,7 @@ import {
   IconIncident,
   IconAlertConfig,
   IconEventDetection,
+  IconWatchAgent,
   IconChevronDown
 } from '@/components/icons'
 import type { Component } from 'vue'
@@ -58,7 +59,8 @@ const observabilityGroup: NavGroup = {
     { id: 'data-quality', label: '데이터 품질', icon: IconDataQuality },
     { id: 'incident-manager', label: '사고 관리자', icon: IconIncident },
     { id: 'alerts', label: '알림들', icon: IconAlertConfig },
-    { id: 'event-detection', label: '이벤트 감지', icon: IconEventDetection }
+    { id: 'event-detection', label: '이벤트 감지', icon: IconEventDetection },
+    { id: 'watch-agent', label: '감시 에이전트', icon: IconWatchAgent }
   ]
 }
 

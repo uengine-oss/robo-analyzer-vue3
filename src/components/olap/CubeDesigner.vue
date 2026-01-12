@@ -596,12 +596,12 @@ function buildETLConfig() {
     }
   })
   
-  // Get dimension table names
-  const dimensionTableNames = dimensions.value.map(d => d.tableName).filter(Boolean)
+  // Get dimension table names (use 'table' or 'tableName' property)
+  const dimensionTableNames = dimensions.value.map(d => d.table || d.tableName).filter(Boolean)
   
-  // Build mappings from AI suggestion
+  // Build mappings from AI suggestion (fact table mappings)
   const mappings: any[] = []
-  const suggestedMappings = suggestion.suggested_mappings || []
+  const suggestedMappings = suggestion.suggested_mappings || suggestion.fact_mappings || []
   
   suggestedMappings.forEach((m: any) => {
     // Parse source (handle formats like ".table.column" or "table.column")
@@ -626,14 +626,56 @@ function buildETLConfig() {
     }
   })
   
+  // Add dimension mappings from AI suggestion (for dimension ETL)
+  const aiDimensions = suggestion.dimensions || []
+  aiDimensions.forEach((dim: any) => {
+    const dimName = (dim.name || '').replace(/[^a-zA-Z0-9_]/g, '') || 'dim_unknown'
+    const sourceTable = dim.source_table || ''
+    const columnMappings = dim.column_mappings || []
+    
+    // If has column mappings, use them
+    if (columnMappings.length > 0) {
+      columnMappings.forEach((cm: any) => {
+        const srcParts = (cm.source || '').split('.')
+        const tgtParts = (cm.target || '').split('.')
+        mappings.push({
+          source_table: srcParts[0] || sourceTable,
+          source_column: srcParts.slice(1).join('.') || srcParts[0] || '',
+          target_table: tgtParts[0] || dimName,
+          target_column: tgtParts.slice(1).join('.') || tgtParts[0] || '',
+          transformation: cm.transformation || ''
+        })
+      })
+    } 
+    // Otherwise create basic mapping from source_columns to target_columns
+    else if (dim.source_columns && dim.target_columns) {
+      const srcCols = dim.source_columns || []
+      const tgtCols = dim.target_columns || []
+      srcCols.forEach((srcCol: string, idx: number) => {
+        const tgtCol = tgtCols[idx] || srcCol
+        if (srcCol && tgtCol) {
+          mappings.push({
+            source_table: sourceTable,
+            source_column: srcCol,
+            target_table: dimName,
+            target_column: tgtCol,
+            transformation: ''
+          })
+        }
+      })
+    }
+  })
+  
   // If no mappings from AI, create basic mappings from dimensions
   if (mappings.length === 0 && dimensions.value.length > 0) {
     dimensions.value.forEach(dim => {
       if (dim.sourceTable && dim.foreignKey) {
+        // Get just the table name without schema prefix
+        const tableName = (dim.table || dim.tableName || '').split('.').pop() || dim.name
         mappings.push({
           source_table: dim.sourceTable.replace(/^\./, ''),
           source_column: dim.foreignKey,
-          target_table: dim.tableName,
+          target_table: tableName,
           target_column: dim.foreignKey,
           transformation: ''
         })
@@ -675,6 +717,38 @@ async function deployToAirflow() {
     console.log('Airflow deployment result:', result)
   } catch (e: any) {
     console.error('Airflow deployment failed:', e)
+    airflowError.value = e.message
+  } finally {
+    airflowLoading.value = false
+  }
+}
+
+async function redeployToAirflow() {
+  if (!cubeName.value) {
+    airflowError.value = '큐브 이름이 없습니다'
+    return
+  }
+  
+  if (!confirm('DAG를 재생성하시겠습니까?\n기존 DAG가 덮어씌워집니다.')) {
+    return
+  }
+  
+  airflowLoading.value = true
+  airflowError.value = null
+  
+  try {
+    // Rebuild ETL config from current cube settings
+    const etlConfig = buildETLConfig()
+    await olapApi.createETLConfig(etlConfig)
+    
+    // Force redeploy to Airflow
+    const result = await olapApi.deployETLPipeline(cubeName.value, true) // force=true
+    airflowDag.value = result
+    
+    console.log('Airflow redeployment result:', result)
+    alert('DAG가 성공적으로 재생성되었습니다!')
+  } catch (e: any) {
+    console.error('Airflow redeployment failed:', e)
     airflowError.value = e.message
   } finally {
     airflowLoading.value = false
@@ -890,7 +964,7 @@ function generateMondrianXML(): string {
               <div class="gen-arrow">→</div>
               <div class="gen-item">
                 <span class="gen-label">일반화된 분석</span>
-                <span class="gen-value generalized">{{ aiSuggestion.generalization.generalized_query }}</span>
+                <span class="gen-value generalized">{{ aiSuggestion.generalization.generalized_query_korean || aiSuggestion.generalization.generalized_query }}</span>
               </div>
             </div>
             
@@ -972,9 +1046,14 @@ function generateMondrianXML(): string {
                   </div>
                 </div>
                 
-                <button class="btn btn-airflow-open" @click="openAirflowUI">
-                  🔗 Airflow UI에서 보기
-                </button>
+                <div class="dag-actions">
+                  <button class="btn btn-airflow-open" @click="openAirflowUI">
+                    🔗 Airflow UI에서 보기
+                  </button>
+                  <button class="btn btn-dag-redeploy" @click="redeployToAirflow" :disabled="airflowLoading">
+                    🔄 DAG 재생성
+                  </button>
+                </div>
                 
                 <p class="airflow-hint">
                   Airflow에서 DAG를 트리거하고 실행 상태를 모니터링할 수 있습니다
@@ -1938,67 +2017,105 @@ function generateMondrianXML(): string {
 
 .gen-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 16px;
   
   .gen-item {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    padding: 12px;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
+    gap: 6px;
+    padding: 16px;
+    border-radius: 10px;
+    
+    &:first-child {
+      /* 원본 쿼리 - 회색 계열 */
+      background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+      border: 1px solid #cbd5e1;
+    }
+    
+    &:last-child {
+      /* 일반화된 분석 - 청록색 계열 */
+      background: linear-gradient(135deg, #ccfbf1 0%, #cffafe 100%);
+      border: 2px solid #14b8a6;
+    }
   }
   
   .gen-arrow {
-    font-size: 1.5rem;
-    color: #82c91e;
+    font-size: 1.75rem;
+    color: #0d9488;
     flex-shrink: 0;
+    align-self: center;
+    font-weight: bold;
   }
 }
 
 .gen-label {
   font-size: 0.6875rem;
-  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  font-weight: 700;
+  
+  .gen-item:first-child & {
+    color: #64748b;
+  }
+  
+  .gen-item:last-child & {
+    color: #0d9488;
+  }
 }
 
 .gen-value {
-  font-size: 0.875rem;
-  line-height: 1.4;
+  font-size: 0.9375rem;
+  line-height: 1.5;
   
   &.original {
-    color: var(--color-text-muted);
+    color: #475569;
+    font-style: italic;
   }
   
   &.generalized {
-    color: #82c91e;
-    font-weight: 500;
+    color: #0f766e;
+    font-weight: 700;
+    font-size: 1rem;
   }
 }
 
 .pivot-capabilities {
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #ecfccb 0%, #d9f99d 100%);
+  border: 1px solid #84cc16;
+  border-radius: 10px;
+  
+  .gen-label {
+    color: #4d7c0f !important;
+  }
 }
 
 .pivot-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .pivot-chip {
-  padding: 6px 12px;
-  background: rgba(34, 139, 230, 0.2);
-  border: 1px solid rgba(34, 139, 230, 0.3);
-  border-radius: 16px;
-  font-size: 0.75rem;
-  color: var(--color-accent);
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #bbf7d0 0%, #a7f3d0 100%);
+  border: 1px solid #22c55e;
+  border-radius: 20px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #166534;
+  transition: all 0.2s ease;
+  cursor: default;
+  
+  &:hover {
+    background: linear-gradient(135deg, #86efac 0%, #6ee7b7 100%);
+    border-color: #16a34a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
+  }
 }
 
 .identified-dims {
@@ -2582,17 +2699,24 @@ function generateMondrianXML(): string {
   }
 }
 
+.dag-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .btn-airflow-open {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 12px 24px;
+  padding: 10px 18px;
   background: linear-gradient(135deg, #017cee 0%, #0056b3 100%);
   border: none;
   border-radius: 8px;
   color: white;
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -2601,6 +2725,33 @@ function generateMondrianXML(): string {
     background: linear-gradient(135deg, #0056b3 0%, #003d80 100%);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(1, 124, 238, 0.3);
+  }
+}
+
+.btn-dag-redeploy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+  
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 }
 

@@ -218,8 +218,9 @@ export const healthCheck = async () => {
 
 // ============== Airflow APIs ==============
 
-export const deployETLPipeline = async (cubeName: string) => {
-  return fetchJson(`/airflow/etl/${encodeURIComponent(cubeName)}/deploy`, {
+export const deployETLPipeline = async (cubeName: string, force: boolean = false) => {
+  const params = force ? '?force=true' : ''
+  return fetchJson(`/airflow/etl/${encodeURIComponent(cubeName)}/deploy${params}`, {
     method: 'POST'
   })
 }

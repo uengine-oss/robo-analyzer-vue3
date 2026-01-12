@@ -138,6 +138,7 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     isLoading: boolean
     error: string | null
     limit: number
+    executedSql?: string  // 실행된 SQL (UI에 표시용)
   }
   const tableDataPanel = ref<TableDataPanelState>({
     isOpen: false,
@@ -149,7 +150,8 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
     executionTimeMs: 0,
     isLoading: false,
     error: null,
-    limit: 25
+    limit: 25,
+    executedSql: ''
   })
   
   // Search/filter
@@ -948,29 +950,34 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
   
   /**
    * 테이블 데이터 조회 패널 열기 및 데이터 로드
+   * 
+   * PostgreSQL 식별자 규칙:
+   * - 따옴표 없음: 자동으로 소문자로 변환됨 (rwis.rditag_tb)
+   * - 따옴표 있음: 대소문자 그대로 유지됨 ("RWIS"."RDITAG_TB")
+   * 
+   * 대문자로 생성된 테이블을 조회하려면 반드시 따옴표로 감싸야 함
    */
   async function queryTableData(tableName: string, schema: string = 'public', limit: number = 25) {
+    // SQL 생성 - 테이블/스키마명을 따옴표로 감싸서 대소문자 보존
+    // PostgreSQL에서 대문자 테이블명은 반드시 "TABLE_NAME" 형식이어야 함
+    const schemaName = schema || 'public'
+    const fullTableName = `"${schemaName}"."${tableName}"`
+    const sql = `SELECT * FROM ${fullTableName} LIMIT ${limit}`
+    
     // 패널 열기 및 로딩 상태 설정
     tableDataPanel.value = {
       isOpen: true,
       tableName,
-      schema,
+      schema: schemaName,
       columns: [],
       rows: [],
       rowCount: 0,
       executionTimeMs: 0,
       isLoading: true,
       error: null,
-      limit
+      limit,
+      executedSql: sql  // 실행된 SQL 저장
     }
-    
-    // SQL 생성 (PostgreSQL은 따옴표 없으면 소문자로 처리하므로 소문자로 변환)
-    const schemaLower = schema?.toLowerCase() || 'public'
-    const tableLower = tableName.toLowerCase()
-    const fullTableName = schemaLower !== 'public' 
-      ? `${schemaLower}.${tableLower}` 
-      : tableLower
-    const sql = `SELECT * FROM ${fullTableName} LIMIT ${limit}`
     
     try {
       const response = await fetch(`${TEXT2SQL_API_BASE}/direct-sql/stream`, {
@@ -1043,7 +1050,8 @@ export const useSchemaCanvasStore = defineStore('schemaCanvas', () => {
       executionTimeMs: 0,
       isLoading: false,
       error: null,
-      limit: 25
+      limit: 25,
+      executedSql: ''
     }
   }
   

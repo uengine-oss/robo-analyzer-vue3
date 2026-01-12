@@ -6,7 +6,7 @@ import GlossaryTab from '@/components/glossary/GlossaryTab.vue'
 import Text2SqlTab from '@/components/text2sql/Text2SqlTab.vue'
 import LangChainTab from '@/components/langchain-text2sql/LangChainTab.vue'
 import { OlapTab } from '@/components/olap'
-import { DataQuality, IncidentManager, AlertsPage, EventDetection } from '@/components/observability'
+import { DataQuality, IncidentManager, AlertsPage, EventDetection, WatchAgent } from '@/components/observability'
 import AlarmToast from '@/components/common/AlarmToast.vue'
 import { useSessionStore } from '@/stores/session'
 import { storeToRefs } from 'pinia'
@@ -31,6 +31,7 @@ const { activeTab } = storeToRefs(sessionStore)
     <IncidentManager v-else-if="activeTab === 'incident-manager'" />
     <AlertsPage v-else-if="activeTab === 'alerts'" />
     <EventDetection v-else-if="activeTab === 'event-detection'" />
+    <WatchAgent v-else-if="activeTab === 'watch-agent'" />
     
     <!-- 실시간 알람 토스트 (항상 표시) -->
     <AlarmToast />

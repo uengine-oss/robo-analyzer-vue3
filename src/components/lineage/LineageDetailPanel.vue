@@ -3,8 +3,9 @@
  * LineageDetailPanel.vue
  * 선택된 노드의 상세 정보 패널
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { IconX } from '@/components/icons'
+import * as olapApi from '@/services/olap-api'
 
 // 타입 정의
 interface LineageNode {
@@ -92,6 +93,66 @@ function getNodeTypeIcon(type: string): string {
     default: return '📦'
   }
 }
+
+// DAG 재생성 상태
+const dagRedeployLoading = ref(false)
+const dagRedeployResult = ref<{ success: boolean; message: string } | null>(null)
+
+// ETL인 경우 큐브 이름 추출
+const cubeName = computed(() => {
+  if (props.node.type !== 'ETL') return null
+  // properties에서 cube_name 가져오기
+  const cubeNameProp = props.node.properties?.cube_name as string
+  if (cubeNameProp) return cubeNameProp
+  // 노드 이름에서 추출 (ETL_xxx_yyy 형태에서 xxx_yyy 추출)
+  const name = props.node.name
+  if (name.startsWith('ETL_')) {
+    return name.substring(4).toLowerCase()
+  }
+  return name.toLowerCase()
+})
+
+// DAG 재생성 함수
+async function redeployDAG() {
+  if (!cubeName.value) {
+    dagRedeployResult.value = { success: false, message: '큐브 이름을 찾을 수 없습니다' }
+    return
+  }
+  
+  if (!confirm(`"${cubeName.value}" 큐브의 Airflow DAG를 재생성하시겠습니까?`)) {
+    return
+  }
+  
+  dagRedeployLoading.value = true
+  dagRedeployResult.value = null
+  
+  try {
+    const result = await olapApi.deployETLPipeline(cubeName.value, true)
+    dagRedeployResult.value = {
+      success: true,
+      message: `DAG 재생성 완료! (ID: ${result.dag_id})`
+    }
+    
+    setTimeout(() => {
+      dagRedeployResult.value = null
+    }, 5000)
+  } catch (e: any) {
+    dagRedeployResult.value = {
+      success: false,
+      message: `실패: ${e.message}`
+    }
+  } finally {
+    dagRedeployLoading.value = false
+  }
+}
+
+// Airflow UI 열기
+function openAirflowUI() {
+  // Airflow URL (기본값)
+  const dagId = `etl_${cubeName.value}`
+  const airflowUrl = `http://localhost:8080/dags/${dagId}/grid`
+  window.open(airflowUrl, '_blank')
+}
 </script>
 
 <template>
@@ -167,6 +228,35 @@ function getNodeTypeIcon(type: string): string {
             <span class="prop-key">{{ prop.key }}</span>
             <span class="prop-value">{{ prop.value }}</span>
           </div>
+        </div>
+      </section>
+      
+      <!-- Airflow 액션 (ETL 노드인 경우만) -->
+      <section v-if="node.type === 'ETL'" class="section airflow-section">
+        <h4 class="section-title">
+          <span class="arrow-icon">🚀</span>
+          Airflow 파이프라인
+        </h4>
+        
+        <div class="airflow-actions">
+          <button 
+            class="btn-airflow" 
+            @click="redeployDAG" 
+            :disabled="dagRedeployLoading"
+          >
+            <span v-if="dagRedeployLoading" class="spinner"></span>
+            <span v-else>🔄</span>
+            {{ dagRedeployLoading ? '재생성 중...' : 'DAG 재생성' }}
+          </button>
+          
+          <button class="btn-airflow-link" @click="openAirflowUI">
+            🔗 Airflow UI
+          </button>
+        </div>
+        
+        <!-- 결과 메시지 -->
+        <div v-if="dagRedeployResult" class="dag-result" :class="{ success: dagRedeployResult.success, error: !dagRedeployResult.success }">
+          {{ dagRedeployResult.message }}
         </div>
       </section>
       
@@ -396,6 +486,99 @@ function getNodeTypeIcon(type: string): string {
     color: var(--color-text-muted);
     margin: 0;
   }
+}
+
+// Airflow 섹션
+.airflow-section {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(168, 85, 247, 0.05) 100%);
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.airflow-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-airflow {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+  }
+  
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+  
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+.btn-airflow-link {
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  
+  &:hover {
+    background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+  }
+}
+
+.dag-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  
+  &.success {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+  }
+  
+  &.error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
 
